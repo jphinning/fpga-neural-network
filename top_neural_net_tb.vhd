@@ -4,23 +4,18 @@ use IEEE.NUMERIC_STD.ALL;
 use std.textio.all;
 use work.pkg_neural_types.ALL;
 
-entity Top_NeuralNet_S1_tb is
-end Top_NeuralNet_S1_tb;
+entity Top_NeuralNet_S2_tb is
+end Top_NeuralNet_S2_tb;
 
-architecture Behavioral of Top_NeuralNet_S1_tb is
+architecture Behavioral of Top_NeuralNet_S2_tb is
 
-    component Top_NeuralNet_S1
+    component Top_NeuralNet_S2
     Port ( 
-        clk          : in  std_logic;
-        rst          : in  std_logic;
-        i_in         : in  data_t;
-        q_in         : in  data_t;
-        input_valid  : in  std_logic; 
-        
-        buf_env_out  : out data_array_t(0 to 5);
-        buf_cos_out  : out data_array_t(0 to 5);
-        buf_sin_out  : out data_array_t(0 to 5);
-        stage_valid  : out std_logic
+        clk, rst : in std_logic;
+        i_in, q_in : in data_t;
+        input_valid : in std_logic;
+        x_flat_out : out data_array_t(0 to 15);
+        stage_valid : out std_logic
     );
     end component;
     
@@ -29,22 +24,19 @@ architecture Behavioral of Top_NeuralNet_S1_tb is
     signal i_in, q_in : data_t := (others => '0');
     signal input_valid : std_logic := '0';
     
-    signal buf_env_out, buf_cos_out, buf_sin_out : data_array_t(0 to 5);
+    signal x_flat_out : data_array_t(0 to 15);
     signal stage_valid : std_logic;
 
     constant clk_period : time := 10 ns;
-    constant INPUT_FILE_NAME : string := "validation_vectors_100.txt";
-    file file_VECTORS : text open read_mode is INPUT_FILE_NAME;
+    
+    -- Para teste controlado, vamos injetar valor fixo 1.0 (Q16.16)
+    -- Isso replica o teste "validação_conv_layer" do Python
+    constant VAL_1 : data_t := to_signed(65536, 32);
 
 begin
 
-    uut: Top_NeuralNet_S1 PORT MAP (
-        clk => clk, rst => rst,
-        i_in => i_in, q_in => q_in, input_valid => input_valid,
-        buf_env_out => buf_env_out,
-        buf_cos_out => buf_cos_out,
-        buf_sin_out => buf_sin_out,
-        stage_valid => stage_valid
+    uut: Top_NeuralNet_S2 PORT MAP (
+        clk, rst, i_in, q_in, input_valid, x_flat_out, stage_valid
     );
 
     clk_process :process
@@ -52,53 +44,53 @@ begin
         clk <= '0'; wait for clk_period/2; clk <= '1'; wait for clk_period/2;
     end process;
 
-    -- PRODUTOR
-    proc_producer: process
-        variable v_ILINE : line;
-        variable v_I, v_Q, v_DUMMY : integer;
-        variable v_SPACE : character;
+    stim_proc: process
+        variable filter_0 : integer;
+        variable expected_val : integer := 38020; -- 32664 * 1.164 (Ganho CORDIC)
     begin
         rst <= '1';
         wait for 100 ns;
         rst <= '0';
         wait for clk_period*20; 
 
-        report "--- START S1 TEST ---";
+        report "--- INICIANDO TESTE S2 (Conv Layer) ---";
+        report "Injetando 1.0 constante para encher buffer...";
 
-        while not endfile(file_VECTORS) loop
-            readline(file_VECTORS, v_ILINE);
-            read(v_ILINE, v_I);
-            -- read(v_ILINE, v_SPACE); -- uncomment if needed
-            read(v_ILINE, v_Q);
+        -- Vamos enviar 10 amostras iguais para encher o buffer e estabilizar
+        for k in 1 to 10 loop
             
+            -- Envia I=1.0, Q=0.0
             wait until falling_edge(clk);
-            i_in <= to_signed(v_I, 32);
-            q_in <= to_signed(v_Q, 32);
+            i_in <= VAL_1;
+            q_in <= (others => '0');
             input_valid <= '1';
             wait for clk_period;
             input_valid <= '0';
             
-            -- Wait for processing (~50 cycles)
-            wait for clk_period * 60; 
+            -- Espera o processamento (Latencia CORDIC + Conv Serial ~ 450 ciclos)
+            wait until stage_valid = '1' for 600 * clk_period;
+            
+            if stage_valid = '1' then
+                filter_0 := to_integer(x_flat_out(0));
+                report "Amostra " & integer'image(k) & " -> Filtro 0: " & integer'image(filter_0);
+                
+                -- A partir da amostra 6, o buffer está cheio de 1.0s
+                if k >= 6 then
+                    if abs(filter_0 - expected_val) < 2000 then
+                        report "  [PASS] Valor consistente com Python + CORDIC Gain!";
+                    else
+                        report "  [CHECK] Valor diferente. Esperado ~" & integer'image(expected_val);
+                    end if;
+                end if;
+            else
+                report "TIMEOUT na Amostra " & integer'image(k) severity error;
+            end if;
+            
+            wait for clk_period * 50; -- Intervalo
         end loop;
         
-        wait for clk_period * 200;
-        report "--- END S1 TEST ---";
+        report "--- FIM TESTE S2 ---";
         wait;
-    end process;
-
-    -- MONITOR
-    proc_monitor: process
-    begin
-        wait until rst = '0';
-        loop
-            wait until rising_edge(clk);
-            if stage_valid = '1' then
-                report "Buffer Update!" &
-                       " Env[0]: " & integer'image(to_integer(buf_env_out(0))) & 
-                       " Cos[0]: " & integer'image(to_integer(buf_cos_out(0)));
-            end if;
-        end loop;
     end process;
 
 end Behavioral;
