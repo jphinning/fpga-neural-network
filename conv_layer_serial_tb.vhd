@@ -1,9 +1,9 @@
 library IEEE;
 use IEEE.STD_LOGIC_1164.ALL;
 use IEEE.NUMERIC_STD.ALL;
+use std.textio.all;
 use work.pkg_neural_types.ALL;
--- Importante: Precisamos do pacote de constantes para que a entidade compile/ligue
-use work.pkg_model_constants.ALL; 
+use work.pkg_model_constants.ALL;
 
 entity Conv_Layer_Serial_tb is
 end Conv_Layer_Serial_tb;
@@ -11,126 +11,106 @@ end Conv_Layer_Serial_tb;
 architecture Behavioral of Conv_Layer_Serial_tb is
 
     component Conv_Layer_Serial
-        Generic (
-            N_FILTERS   : integer;
-            KERNEL_SIZE : integer;
-            M           : integer
-        );
+        Generic ( N_FILTERS, KERNEL_SIZE, M : integer );
         Port ( 
-            clk        : in  std_logic;
-            rst        : in  std_logic;
-            start      : in  std_logic;
-            
-            buf_env    : in  data_array_t;
-            buf_cos    : in  data_array_t;
-            buf_sin    : in  data_array_t;
-            
-            x_flat_out : out data_array_t;
-            done       : out std_logic
+            clk, rst, start : in std_logic;
+            buf_env, buf_cos, buf_sin : in data_array_t;
+            x_flat_out : out data_array_t; done : out std_logic 
         );
     end component;
 
-    -- Configuração Igual ao Top Level
+    constant M : integer := 5;
     constant N_FILTERS : integer := 16;
-    constant K_SIZE    : integer := 4;
-    constant M         : integer := 5;
-
+    
     signal clk : std_logic := '0';
     signal rst : std_logic := '0';
     signal start : std_logic := '0';
     
-    -- Buffers de Entrada
+    -- Local Buffers to simulate history
     signal buf_env : data_array_t(0 to M) := (others => (others => '0'));
     signal buf_cos : data_array_t(0 to M) := (others => (others => '0'));
     signal buf_sin : data_array_t(0 to M) := (others => (others => '0'));
     
-    signal x_flat_out : data_array_t(0 to N_FILTERS-1);
+    signal x_flat_out : data_array_t(0 to 15);
     signal done : std_logic;
 
     constant clk_period : time := 10 ns;
-    constant VAL_1 : data_t := to_signed(65536, 32);
+    file file_VECTORS : text open read_mode is "vectors_s2_conv.txt";
 
 begin
 
-    uut: Conv_Layer_Serial
-    Generic Map (
-        N_FILTERS   => N_FILTERS,
-        KERNEL_SIZE => K_SIZE,
-        M           => M
-    )
+    uut: Conv_Layer_Serial 
+    Generic Map (N_FILTERS => 16, KERNEL_SIZE => 4, M => 5)
     Port Map (
-        clk => clk,
-        rst => rst,
-        start => start,
-        buf_env => buf_env,
-        buf_cos => buf_cos,
-        buf_sin => buf_sin,
-        x_flat_out => x_flat_out,
-        done => done
+        clk, rst, start, buf_env, buf_cos, buf_sin, x_flat_out, done
     );
 
     clk_process :process
     begin
-        clk <= '0';
-        wait for clk_period/2;
-        clk <= '1';
-        wait for clk_period/2;
+        clk <= '0'; wait for clk_period/2; clk <= '1'; wait for clk_period/2;
     end process;
 
     stim_proc: process
-        variable start_time : time;
-        variable end_time : time;
-        variable duration : time;
-        variable cycles : integer;
+        variable v_ILINE : line;
+        variable v_ENV, v_COS, v_SIN : integer;
+        variable v_EXP_FLAT : integer;
+        variable v_ACT_FLAT : integer;
+        variable sample_cnt : integer := 0;
+        variable errors_in_sample : integer;
     begin
-        -- Reset
-        rst <= '1';
-        wait for 100 ns;
-        wait until falling_edge(clk);
-        rst <= '0';
-        wait for clk_period*5;
+        rst <= '1'; wait for 100 ns; rst <= '0'; wait for clk_period*5;
 
-        report "--- STARTING CONV LAYER SERIAL TEST ---";
-
-        -- Setup Buffers (Preenche tudo com 1.0 para gerar atividade)
-        -- Como os pesos vêm do pacote (gerado pelo Python), não sabemos o resultado exato
-        -- sem olhar o pacote, mas podemos verificar se ele calcula ALGO diferente de zero.
-        buf_env <= (others => VAL_1);
-        buf_cos <= (others => VAL_1);
-        buf_sin <= (others => VAL_1);
-
-        -- Disparo
-        wait until falling_edge(clk);
-        start <= '1';
-        start_time := now; -- Marca tempo inicial
-        wait for clk_period;
-        start <= '0';
-
-        -- Esperar Done
-        -- O timeout aqui deve ser generoso: 16 filtros x ~20 ciclos = ~320 ciclos
-        wait until done = '1' for clk_period * 1000;
-        
-        if done = '0' then
-            report "FALHA: Timeout! O sinal Done nunca subiu." severity failure;
-        else
-            end_time := now;
-            duration := end_time - start_time;
-            cycles := duration / clk_period;
+        while not endfile(file_VECTORS) loop
+            sample_cnt := sample_cnt + 1;
+            readline(file_VECTORS, v_ILINE);
             
-            report "SUCESSO: Done recebido!";
-            report "Latência Total: " & integer'image(cycles) & " ciclos de clock.";
+            -- 1. Read Inputs (Newest values)
+            read(v_ILINE, v_ENV); read(v_ILINE, v_COS); read(v_ILINE, v_SIN);
             
-            -- Verificação de Sanidade: Resultado não pode ser indefinido
-            if is_x(std_logic_vector(x_flat_out(0))) then
-                 report "ALERTA: A saída contem 'X' ou 'U'. Verifique a inicialização." severity warning;
+            -- 2. Shift Local Buffers (Simulate Shift Register behavior)
+            wait until falling_edge(clk);
+            -- Shift right
+            buf_env(1 to M) <= buf_env(0 to M-1);
+            buf_cos(1 to M) <= buf_cos(0 to M-1);
+            buf_sin(1 to M) <= buf_sin(0 to M-1);
+            -- Insert at head
+            buf_env(0) <= to_signed(v_ENV, 32);
+            buf_cos(0) <= to_signed(v_COS, 32);
+            buf_sin(0) <= to_signed(v_SIN, 32);
+            
+            -- 3. Trigger Conv
+            wait for clk_period; -- Wait for shift to settle
+            start <= '1'; wait for clk_period; start <= '0';
+            
+            -- 4. Wait Done
+            wait until done = '1' for 1000 * clk_period;
+            
+            if done = '1' then
+                -- 5. Check 16 Filters
+                errors_in_sample := 0;
+                for f in 0 to 15 loop
+                    read(v_ILINE, v_EXP_FLAT);
+                    v_ACT_FLAT := to_integer(x_flat_out(f));
+                    
+                    if abs(v_ACT_FLAT - v_EXP_FLAT) > 200 then
+                        errors_in_sample := errors_in_sample + 1;
+                        if errors_in_sample = 1 then -- Report only first error per sample
+                             report "S2 Sample " & integer'image(sample_cnt) & " Filter " & integer'image(f) & 
+                                    " FAIL. Got:" & integer'image(v_ACT_FLAT) & " Exp:" & integer'image(v_EXP_FLAT) severity error;
+                        end if;
+                    end if;
+                end loop;
+                
+                if errors_in_sample = 0 then
+                    report "S2 Sample " & integer'image(sample_cnt) & " PASS";
+                end if;
             else
-                 -- Imprime o valor do primeiro filtro para inspeção visual
-                 report "Valor do Filtro 0: " & integer'image(to_integer(x_flat_out(0)));
-                 report "Valor do Filtro 15: " & integer'image(to_integer(x_flat_out(15)));
+                report "Timeout S2 Sample " & integer'image(sample_cnt) severity failure;
             end if;
-        end if;
-
+            
+            wait for clk_period*10;
+        end loop;
+        report "TEST S2 FINISHED";
         wait;
     end process;
-
 end Behavioral;

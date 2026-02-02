@@ -30,7 +30,7 @@ architecture Behavioral of Dense_Layer is
         Port ( clk, rst : in std_logic; x_in : in data_t; y_out : out data_t );
     end component;
 
-    -- [MODIFICADO] Sinais internos NATIVOS
+    -- Sinais internos NATIVOS
     signal acc : signed(31 downto 0);
     signal neuron_idx : integer range 0 to NUM_OUTPUTS;
     signal input_idx  : integer range 0 to NUM_INPUTS;
@@ -59,7 +59,7 @@ begin
     );
 
     process(clk)
-        -- [MODIFICADO] Variáveis NATIVAS de 64 bits
+        -- Variáveis NATIVAS de 64 bits
         variable v_prod : signed(63 downto 0);
         variable v_trunc : signed(31 downto 0);
     begin
@@ -91,8 +91,14 @@ begin
                             -- Multiplicação Explícita
                             v_prod := input_vec(input_idx) * weights(neuron_idx * NUM_INPUTS + input_idx);
                             
-                            -- [CORREÇÃO] Slice Manual (47 downto 16)
-                            v_trunc := v_prod(47 downto 16);
+                            -- [MODIFICADO] Rounding (Round-to-Nearest)
+                            -- Se o bit 15 (0.5) for '1', somamos 1 ao resultado truncado.
+                            -- Isso converte Floor para Round.
+                            if v_prod(15) = '1' then
+                                v_trunc := v_prod(47 downto 16) + 1;
+                            else
+                                v_trunc := v_prod(47 downto 16);
+                            end if;
                             
                             acc <= acc + v_trunc;
                             input_idx <= input_idx + 1;

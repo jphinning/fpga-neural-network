@@ -9,7 +9,6 @@ entity LUT_Trig is
         clk    : in  std_logic;
         rst    : in  std_logic;
         x_in   : in  data_t; 
-        
         mode_sin : in std_logic; 
         y_out  : out data_t
     );
@@ -17,20 +16,22 @@ end LUT_Trig;
 
 architecture Behavioral of LUT_Trig is
 
-    signal index : integer range 0 to 1023;
-    
-    -- Offset = 4.0. Em Q16.16: 4 * 65536 = 262144
+    signal index : integer range 0 to 1023 := 0;
     constant OFFSET_VAL : signed(31 downto 0) := to_signed(262144, 32);
 
-    -- Sinais
-    signal y0, slope : data_t;
-    signal addr_norm_d1 : signed(31 downto 0); 
+    -- Sinais de Estágio 1
+    signal addr_norm_d1 : signed(31 downto 0) := (others => '0');
     
-    signal delta_x : data_t;
+    -- Sinais de Estágio 2
+    signal y0, slope : data_t := (others => '0');
+    signal delta_x   : data_t := (others => '0');
     
-    -- [CORREÇÃO] Tipo explícito de 64 bits para evitar erro de cache do simulador
-    signal prod_long : signed(63 downto 0);
-    signal delta_y : data_t;
+    -- Sinais de Estágio 3 (Pipeline para sincronia)
+    signal y0_d1     : data_t := (others => '0'); -- Delay para y0
+    signal prod_long : signed(63 downto 0) := (others => '0');
+    
+    -- Sinais de Estágio 4
+    signal delta_y   : data_t := (others => '0');
 
 begin
 
@@ -42,19 +43,17 @@ begin
             if rst = '1' then
                 y_out <= (others => '0');
                 index <= 0;
-                -- Resetar sinais internos ajuda a evitar 'U' propagando
-                delta_x <= (others => '0');
-                prod_long <= (others => '0');
-                delta_y <= (others => '0');
+                addr_norm_d1 <= (others => '0');
                 y0 <= (others => '0');
                 slope <= (others => '0');
+                delta_x <= (others => '0');
+                y0_d1 <= (others => '0');
+                prod_long <= (others => '0');
             else
-                -- ESTÁGIO 1: Endereçamento
+                -- === ESTÁGIO 1: Cálculo de Endereço ===
                 address_norm := x_in + OFFSET_VAL;
                 
-                -- Slice 18 downto 9 (Divisão por 512)
-                -- [CORREÇÃO CRÍTICA]: Cast para UNSIGNED antes de to_integer
-                -- Isso impede que o bit 19 seja interpretado como sinal negativo
+                -- Slice e Cast Unsigned
                 idx_calc := to_integer(unsigned(address_norm(18 downto 9)));
 
                 if idx_calc < 0 then index <= 0;
@@ -64,7 +63,8 @@ begin
                 
                 addr_norm_d1 <= address_norm;
 
-                -- ESTÁGIO 2: Leitura
+                -- === ESTÁGIO 2: Leitura ROM e Delta X ===
+                -- As saídas (y0, slope, delta_x) estarão disponíveis no próximo clock
                 if mode_sin = '1' then
                     y0 <= LUT_SIN_Y(index);
                     slope <= LUT_SIN_SLOPES(index);
@@ -73,16 +73,19 @@ begin
                     slope <= LUT_COS_SLOPES(index);
                 end if;
 
-                -- ESTÁGIO 3: Cálculo
                 delta_x <= addr_norm_d1 and x"000001FF"; 
-                
-                -- Multiplicação (Gera 64 bits)
-                prod_long <= delta_x * slope;
 
-                -- ESTÁGIO 4: Resultado
-                -- [CORREÇÃO] Slice manual (47 downto 16) em vez de função do pacote
+                -- === ESTÁGIO 3: Multiplicação e Delay de Alinhamento ===
+                -- A multiplicação usa os valores gerados no Estágio 2
+                prod_long <= delta_x * slope;
+                
+                -- [CORREÇÃO CRÍTICA] Atrasar y0 para alinhar com o resultado da mult
+                y0_d1 <= y0;
+
+                -- === ESTÁGIO 4: Soma Final ===
+                -- Agora somamos y0 (atrasado) com a correção calculada
                 delta_y <= prod_long(47 downto 16);
-                y_out <= y0 + delta_y;
+                y_out <= y0_d1 + delta_y; -- Usar y0_d1 aqui!
                 
             end if;
         end if;
