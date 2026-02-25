@@ -43,6 +43,9 @@ architecture Behavioral of NeuralNet_Complete_tb is
     constant clk_period : time := 10 ns;
     
     file file_VECTORS : text open read_mode is "validation_vectors_final.txt";
+    -- [NEW] Output file for writing results
+    file file_OUTPUTS : text open write_mode is "output_results.txt";
+    
     constant TOLERANCE : integer := 1000;
     
     -- Warm-up: 5 samples for buffer fill + 1 sample for the pipeline lag we found
@@ -66,6 +69,7 @@ begin
 
     stim_proc: process
         variable v_ILINE     : line;
+        variable v_OLINE     : line;  -- [NEW] Output line variable
         variable v_I_IN, v_Q_IN : integer;
         variable v_I_EXP, v_Q_EXP : integer;
         
@@ -77,11 +81,16 @@ begin
         variable v_ERR_I, v_ERR_Q : integer;
         
         variable sample_cnt  : integer := 0;
+        variable output_idx  : integer := 0;  -- [NEW] Counter for output index
         variable timeout_cnt : integer := 0;
     begin
         report "--- SIMULATION STARTED ---";
         rst <= '1'; wait for 100 ns; rst <= '0';
         wait until rising_edge(clk); wait for clk_period*10;
+
+        -- [NEW] Write header to output file
+        write(v_OLINE, string'("Index, I_out, Q_out"));
+        writeline(file_OUTPUTS, v_OLINE);
 
         while not endfile(file_VECTORS) loop
             sample_cnt := sample_cnt + 1;
@@ -119,6 +128,15 @@ begin
                         v_I_ACT := to_integer(i_out);
                         v_Q_ACT := to_integer(q_out);
                         
+                        -- [NEW] Increment output index and write to file
+                        output_idx := output_idx + 1;
+                        write(v_OLINE, output_idx);
+                        write(v_OLINE, string'(", "));
+                        write(v_OLINE, v_I_ACT);
+                        write(v_OLINE, string'(", "));
+                        write(v_OLINE, v_Q_ACT);
+                        writeline(file_OUTPUTS, v_OLINE);
+                        
                         -- [KEY CHANGE] Compare Actual Output against PREVIOUS Expected Value
                         -- The output arriving now corresponds to the input sent in the previous iteration
                         v_ERR_I := abs(v_I_ACT - v_I_EXP_PREV);
@@ -153,6 +171,7 @@ begin
         end loop;
 
         report "--- SIMULATION FINISHED ---";
+        report "Output results written to: output_results.txt";
         wait;
     end process;
 
