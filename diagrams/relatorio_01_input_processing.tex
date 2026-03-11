@@ -599,11 +599,13 @@ end Behavioral;
 \subsection{Explica\c{c}\~ao}
 
 \begin{itemize}
+    \item \textbf{Tipo \texttt{data\_t}:} Todos os sinais de dados utilizam o subtipo \texttt{data\_t}, definido no pacote \texttt{pkg\_neural\_types} como \texttt{signed(31 downto 0)}. Ele representa um n\'umero em ponto fixo Q16.16: 1~bit de sinal, 15~bits inteiros e 16~bits fracion\'arios, com faixa de $-32768$ a $+32767{,}99998$ e precis\~ao de $\approx 1{,}5 \times 10^{-5}$. O pacote tamb\'em define \texttt{data\_long\_t} (\texttt{signed(63 downto 0)}) para armazenar resultados intermedi\'arios de multiplica\c{c}\~ao sem perda de precis\~ao, e \texttt{data\_array\_t} para vetores de \texttt{data\_t}. Centralizar esses tipos em um pacote permite ajustar a largura de palavra em um \'unico lugar e torna as assinaturas de todas as entidades autoexplicativas.
+
     \item \textbf{Corre\c{c}\~ao de ganho CORDIC:} O algoritmo CORDIC introduz um ganho fixo $K \approx 1{,}1644$. Multiplica-se a magnitude por $K^{-1} = 56281 \approx 0{,}8588 \times 2^{16}$ e extraem-se os bits $[47\!:\!16]$ do produto de 64~bits, equivalente a dividir por $2^{16}$.
 
     \item \textbf{Escala de fase:} A sa\'ida de fase do CORDIC est\'a em alta resolu\c{c}\~ao e \'e convertida para Q16.16 por um deslocamento de 13~bits para a direita.
 
-    \item \textbf{Linha de atraso do valid:} Um registrador de deslocamento de 41~bits propaga \texttt{input\_valid} com exatamente 40~ciclos de atraso, sincronizando com a sa\'ida do CORDIC.
+    \item \textbf{Linha de atraso do valid (40~ciclos):} O IP core CORDIC utilizado \'e \textbf{iterativo}: ele executa as rota\c{c}\~oes vetoriais ao longo de exatamente 40~ciclos de rel\'ogio antes de produzir um resultado v\'alido na sa\'ida. O sinal \texttt{input\_valid} precisa ser propagado com o mesmo atraso para indicar ao restante do circuito \textit{exatamente quando} os sinais \texttt{envelope\_s} e \texttt{phase\_raw} s\~ao v\'alidos. Sem esse atraso, a l\'ogica de desembrulhamento de fase leria valores intermedi\'arios (e incorretos) do CORDIC antes do c\'alculo estar conclu\'ido. Adicionalmente, se um novo par $(i_{in},\, q_{in})$ fosse apresentado ao CORDIC antes dos 40~ciclos expirarem, o algoritmo seria reiniciado com os novos dados e a amostra anterior \textbf{n\~ao seria processada}. Um registrador de deslocamento de 41~bits (\texttt{valid\_sr}) implementa essa linha de atraso com custo m\'inimo de hardware: apenas um flip-flop por bit.
 
     \item \textbf{Desembrulhamento de fase:} A diferen\c{c}a $\Delta\theta(n) = \theta_{\text{raw}}(n) - \theta_{\text{raw}}(n{-}1)$ \'e normalizada para $[-\pi,+\pi]$ somando ou subtraindo $2\pi$ quando necess\'ario. A fase acumulada \'e mantida em \texttt{theta\_unwrapped\_reg}.
 \end{itemize}
