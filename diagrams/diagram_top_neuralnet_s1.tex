@@ -1,0 +1,178 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 1.8cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% Bloco de Processamento de Entrada (esquerda)
+% ---------------------------------------------------------
+\node[block, minimum width=4.0cm, minimum height=4.0cm, text width=3.5cm] (IPB) at (0, 0) {%
+    \textbf{Input}\\
+    \textbf{Processing}\\
+    \textbf{Block}\\[3pt]
+    {\footnotesize CORDIC + Phase}\\
+    {\footnotesize Unwrap}\\
+    {\footnotesize (40 ciclos)}
+};
+
+% ---------------------------------------------------------
+% Entradas (extremo esquerdo)
+% ---------------------------------------------------------
+\node[io_node] (Iin) at (-4.5, 1.0) {$i_{in}$};
+\node[io_node] (Qin) at (-4.5, -0.5) {$q_{in}$};
+\node[io_node] (Vin) at (-4.5, -2.0) {input\_valid};
+
+\draw[data arrow] (Iin) -- ($(IPB.west) + (0, 1.0)$);
+\draw[data arrow] (Qin) -- ($(IPB.west) + (0, -0.2)$);
+\draw[ctrl arrow] (Vin) -- ($(IPB.west) + (0, -1.4)$);
+
+% ---------------------------------------------------------
+% Sa\'idas do IPB
+% ---------------------------------------------------------
+% envelope_s (topo direito do IPB)
+\coordinate (envOut) at ($(IPB.east) + (0, 1.2)$);
+% theta_norm (meio direito do IPB)
+\coordinate (thetaNormOut) at ($(IPB.east) + (0, 0.0)$);
+% phase_wrapped (baixo direito do IPB)
+\coordinate (phaseWOut) at ($(IPB.east) + (0, -1.2)$);
+% buffers_enable_raw (base do IPB)
+\coordinate (enRawOut) at ($(IPB.south) + (0.5, 0)$);
+
+% ---------------------------------------------------------
+% LUTs trigonometricas (secao central)
+% ---------------------------------------------------------
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_C) at (5.5, 1.5) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (cosseno)}\\
+    {\footnotesize $\cos(\Delta\theta)$}
+};
+
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_S) at (5.5, -1.5) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (seno)}\\
+    {\footnotesize $\sin(\Delta\theta)$}
+};
+
+% theta_norm bifurca para ambas LUTs
+\draw[data arrow] (thetaNormOut) -- ++(1.5, 0) coordinate (thetaFork);
+\node[dot] at (thetaFork) {};
+\draw[data arrow] (thetaFork) |- (LUT_C.west)
+    node[signal, pos=0.3, above] {\scriptsize $\theta_{norm}$};
+\draw[data arrow] (thetaFork) |- (LUT_S.west);
+
+% ---------------------------------------------------------
+% Bloco de Atraso de Alinhamento (envelope + theta)
+% ---------------------------------------------------------
+\node[small block, minimum width=2.8cm, minimum height=1.8cm, text width=2.4cm] (Delay) at (5.5, 4.5) {%
+    \textbf{Atraso de}\\
+    \textbf{Alinhamento}\\
+    {\scriptsize 4 ciclos (LUT)}
+};
+
+% envelope_s -> Atraso
+\draw[data arrow] (envOut) -- ++(1.5, 0) |- ($(Delay.west) + (0, 0.3)$)
+    node[signal, pos=0.2, above] {\scriptsize envelope\_s};
+
+% phase_wrapped -> Atraso (caminho theta)
+\draw[data arrow] (phaseWOut) -- ++(0.8, 0) |- ($(Delay.west) + (0, -0.3)$)
+    node[signal, pos=0.15, below] {\scriptsize phase\_wrapped};
+
+% ---------------------------------------------------------
+% Atraso do Enable
+% ---------------------------------------------------------
+\node[small block, minimum width=2.8cm, minimum height=0.8cm, text width=2.4cm] (EnDelay) at (5.5, -4.0) {%
+    \textbf{Atraso Enable}\\
+    {\scriptsize 4 ciclos}
+};
+\draw[ctrl arrow] (enRawOut) |- (EnDelay.west)
+    node[signal, pos=0.3, below] {\scriptsize en\_raw};
+
+% ---------------------------------------------------------
+% Registradores de Deslocamento (secao direita)
+% ---------------------------------------------------------
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_E) at (11.5, 4.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (envelope, $M\!=\!5$)}
+};
+
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_C) at (11.5, 1.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (cosseno, $M\!=\!5$)}
+};
+
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_S) at (11.5, -1.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (seno, $M\!=\!5$)}
+};
+
+% Atraso -> Shift_Reg (envelope)
+\draw[data arrow] (Delay.east) -- ++(0.5, 0) |- (SR_E.west)
+    node[signal, pos=0.4, above] {\scriptsize env\_aligned};
+
+% LUT_C -> Shift_Reg (cos)
+\draw[data arrow] (LUT_C.east) -- (SR_C.west)
+    node[signal, midway, above] {\scriptsize cos\_dp};
+
+% LUT_S -> Shift_Reg (sin)
+\draw[data arrow] (LUT_S.east) -- (SR_S.west)
+    node[signal, midway, above] {\scriptsize sin\_dp};
+
+% Distribuicao do enable
+\coordinate (enAligned) at ($(EnDelay.east) + (1.5, 0)$);
+\draw[ctrl arrow] (EnDelay.east) -- (enAligned);
+\node[dot] at (enAligned) {};
+\draw[ctrl arrow] (enAligned) |- ($(SR_E.south) + (-0.5, 0)$)
+    node[signal, pos=0.1, right] {\scriptsize wr\_en};
+\draw[ctrl arrow] (enAligned) |- ($(SR_C.south) + (-0.5, 0)$);
+\draw[ctrl arrow] (enAligned) |- ($(SR_S.south) + (-0.5, 0)$);
+
+% ---------------------------------------------------------
+% Saidas (extremo direito)
+% ---------------------------------------------------------
+\node[io_node, right=1.5cm of SR_E] (OutE) {buf\_env\_out$[0\!:\!5]$};
+\node[io_node, right=1.5cm of SR_C] (OutC) {buf\_cos\_out$[0\!:\!5]$};
+\node[io_node, right=1.5cm of SR_S] (OutS) {buf\_sin\_out$[0\!:\!5]$};
+
+\draw[data arrow] (SR_E.east) -- (OutE) node[bus, midway, below] {$/6$};
+\draw[data arrow] (SR_C.east) -- (OutC) node[bus, midway, below] {$/6$};
+\draw[data arrow] (SR_S.east) -- (OutS) node[bus, midway, below] {$/6$};
+
+% ---------------------------------------------------------
+% theta_unwrapped_out (CORRIGIDO: acima de buf_env, sem sobreposicao)
+% ---------------------------------------------------------
+% Posicionado bem acima da linha do SR_E para evitar colisao visual
+\node[io_node] (OutTheta) at ($(SR_E.north) + (3.5, 1.8)$) {theta\_unwrapped\_out};
+
+% Fio: do lado leste do Delay, sobe ate a saida de theta
+\draw[data arrow] ($(Delay.east) + (0, -0.3)$) -- ++(2.0, 0) coordinate (ThetaMid);
+\draw[data arrow] (ThetaMid) -- ($(ThetaMid |- OutTheta)$) -- (OutTheta);
+\node[signal] at ($(ThetaMid) + (0, 0.3)$) {\scriptsize $\theta_{aligned}$};
+
+% ---------------------------------------------------------
+% stage_valid
+% ---------------------------------------------------------
+\node[io_node] (OutValid) at ($(enAligned) + (4.5, 0)$) {stage\_valid};
+\draw[ctrl arrow] (enAligned) -- ++(0.5, 0) |- (OutValid);
+
+% ---------------------------------------------------------
+% Borda da entidade
+% ---------------------------------------------------------
+\node[entity border, fit=(Iin)(Vin)(OutE)(OutS)(OutTheta)(OutValid)(Delay)(EnDelay), inner sep=15pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\noindent\textit{Lat\^{e}ncia das LUTs $= 4$ ciclos. O atraso de alinhamento garante sincronismo do envelope e de $\theta$ com as sa\'{i}das das LUTs. Todos os registradores de deslocamento avancam simultaneamente com \textsf{wr\_en}.}
+
+\caption{Top\_NeuralNet\_S1 -- Est\'{a}gio 1: convers\~{a}o IQ$\,\rightarrow\,$polar, decomposi\c{c}\~{a}o trigonom\'{e}trica e buffers deslizantes.}
+\label{fig:top_neuralnet_s1}
+\end{figure}

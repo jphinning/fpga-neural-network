@@ -1,0 +1,152 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 2.5cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% Tres estagios de pipeline
+% ---------------------------------------------------------
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S1) at (0, 0) {%
+    \textbf{Est\'{a}gio 1}\\
+    \textbf{Processamento}\\
+    \textbf{de Entrada}\\[5pt]
+    {\footnotesize Top\_NeuralNet\_S1}\\[3pt]
+    {\footnotesize IQ $\rightarrow$ Polar}\\
+    {\footnotesize Decomp. trigonom.}\\
+    {\footnotesize Buffers deslizantes}
+};
+
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S2) at ($(S1.east) + (6.5, 0)$) {%
+    \textbf{Est\'{a}gio 2}\\
+    \textbf{Convolu\c{c}\~{a}o}\\[5pt]
+    {\footnotesize Conv\_Layer\_Serial}\\[3pt]
+    {\footnotesize Conv1D 3 canais}\\
+    {\footnotesize 16 filtros (serial.)}\\
+    {\footnotesize ReLU + Avg Pool}
+};
+
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S3) at ($(S2.east) + (6.5, 0)$) {%
+    \textbf{Est\'{a}gio 3}\\
+    \textbf{MLP + Sa\'{i}da}\\[5pt]
+    {\footnotesize BackEnd\_Wrapper}\\[3pt]
+    {\footnotesize 2 ramos MLP}\\
+    {\footnotesize Rota\c{c}\~{a}o de fase}\\
+    {\footnotesize Mult. complexa}
+};
+
+% ---------------------------------------------------------
+% Portas de entrada (extremo esquerdo)
+% ---------------------------------------------------------
+\node[io_node] (Iin) at ($(S1.west) + (-3.5, 1.0)$) {$i_{in}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Qin) at ($(S1.west) + (-3.5, -0.3)$) {$q_{in}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Vin) at ($(S1.west) + (-3.5, -1.5)$) {input\_valid};
+
+\draw[data arrow] (Iin) -- ($(S1.west) + (0, 1.0)$);
+\draw[data arrow] (Qin) -- ($(S1.west) + (0, -0.3)$);
+\draw[ctrl arrow] (Vin) -- ($(S1.west) + (0, -1.5)$);
+
+% ---------------------------------------------------------
+% S1 -> S2: barramentos de buffer
+% ---------------------------------------------------------
+\draw[data arrow] ($(S1.east) + (0, 1.2)$) -- ($(S2.west) + (0, 1.2)$)
+    node[signal, midway, above] {buf\_env$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+\draw[data arrow] ($(S1.east) + (0, 0.0)$) -- ($(S2.west) + (0, 0.0)$)
+    node[signal, midway, above] {buf\_cos$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+\draw[data arrow] ($(S1.east) + (0, -1.2)$) -- ($(S2.west) + (0, -1.2)$)
+    node[signal, midway, above] {buf\_sin$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+% ---------------------------------------------------------
+% S1 -> S3: bypass de theta (abaixo do S2)
+% ---------------------------------------------------------
+\coordinate (thetaStart) at ($(S1.east) + (0, -1.8)$);
+\coordinate (thetaEnd) at ($(S3.west) + (0, -1.8)$);
+\coordinate (thetaBelow) at ($(S2.south) + (0, -1.2)$);
+
+\draw[data arrow] (thetaStart) -- ++(0, -1.5) -- (thetaBelow);
+\node[register, fill=white] (ThetaReg) at (thetaBelow) {$\theta_{cap}$};
+\node[signal, below=0.2cm of ThetaReg] {\scriptsize theta\_captured};
+\draw[data arrow] (ThetaReg.east) -| (thetaEnd);
+\node[signal] at ($(thetaStart) + (0.3, -0.8)$) {\scriptsize $\theta$};
+
+% ---------------------------------------------------------
+% S2 -> S3: vetor de features
+% ---------------------------------------------------------
+\draw[data arrow] ($(S2.east) + (0, 0.0)$) -- ($(S3.west) + (0, 0.0)$)
+    node[signal, midway, above] {x\_flat$[0\!:\!15]$}
+    node[bus, midway, below] {$/16$};
+
+% ---------------------------------------------------------
+% Portas de saida (extremo direito)
+% ---------------------------------------------------------
+\node[io_node] (Iout) at ($(S3.east) + (3.0, 0.8)$) {$i_{out}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Qout) at ($(S3.east) + (3.0, -0.5)$) {$q_{out}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Vout) at ($(S3.east) + (3.0, -1.5)$) {output\_valid};
+
+\draw[data arrow] ($(S3.east) + (0, 0.8)$) -- (Iout);
+\draw[data arrow] ($(S3.east) + (0, -0.5)$) -- (Qout);
+\draw[ctrl arrow] ($(S3.east) + (0, -1.5)$) -- (Vout);
+
+% ---------------------------------------------------------
+% FSM de Controle (baixo)
+% ---------------------------------------------------------
+\node[entity border, minimum width=14.0cm, minimum height=2.0cm] (FSM) at ($(S2.south) + (0, -4.5)$) {};
+\node[font=\sffamily\small\bfseries, align=center] at ($(FSM.center) + (0, 0.3)$) {%
+    FSM de Controle
+};
+\node[font=\sffamily\scriptsize, align=center] at ($(FSM.center) + (0, -0.4)$) {%
+    WARMUP $\rightarrow$ PRONTO $\rightarrow$ INI\_CONV $\rightarrow$ ESP\_CONV $\rightarrow$ INI\_MLP $\rightarrow$ ESP\_MLP $\rightarrow$ SA\'{I}DA\_V\'{A}LIDA
+};
+
+% Sinais de controle FSM <-> Estagios
+\draw[ctrl arrow] ($(FSM.north) + (-4.5, 0)$) -- ($(S1.south) + (0.5, 0)$)
+    node[signal, midway, right] {\scriptsize s1\_valid};
+
+\draw[ctrl arrow] ($(FSM.north) + (-1.0, 0)$) -- ($(S2.south) + (-0.5, 0)$)
+    node[signal, midway, left] {\scriptsize conv\_start};
+
+\draw[ctrl arrow] ($(S2.south) + (0.5, 0)$) -- ($(FSM.north) + (0.5, 0)$)
+    node[signal, midway, right] {\scriptsize s2\_done};
+
+\draw[ctrl arrow] ($(FSM.north) + (3.0, 0)$) -- ($(S3.south) + (-0.5, 0)$)
+    node[signal, midway, left] {\scriptsize backend\_start};
+
+\draw[ctrl arrow] ($(S3.south) + (0.5, 0)$) -- ($(FSM.north) + (4.5, 0)$)
+    node[signal, midway, right] {\scriptsize s3\_done};
+
+% Saidas de status da FSM
+\node[io_node] (Proc) at ($(FSM.south) + (-3.0, -1.0)$) {processing};
+\node[io_node] (Ready) at ($(FSM.south) + (3.0, -1.0)$) {net\_ready};
+
+\draw[ctrl arrow] ($(FSM.south) + (-3.0, 0)$) -- (Proc);
+\draw[ctrl arrow] ($(FSM.south) + (3.0, 0)$) -- (Ready);
+
+% ---------------------------------------------------------
+% Anotacao de generics
+% ---------------------------------------------------------
+\node[annotation, below=0.3cm of Ready, xshift=2cm] {%
+    {\footnotesize Gen\'{e}ricos: $M\!=\!5$,\ $N\_\text{FILTROS}\!=\!16$,\ $K\!=\!4$}\\
+    {\footnotesize Formato: Q16.16 (32~bits com sinal)}
+};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\noindent\textit{Pipeline de tr\^{e}s est\'{a}gios controlado por uma FSM central. O Est\'{a}gio~1 opera continuamente; os Est\'{a}gios~2 e~3 s\~{a}o ativados sequencialmente ap\'{o}s \textit{warmup} ($M\!=\!5$ amostras). A fase $\theta$ realiza \textit{bypass} do Est\'{a}gio~2 via registrador de captura.}
+
+\caption{NeuralNet\_Complete -- arquitetura geral do sistema de pr\'{e}-distor\c{c}\~{a}o digital baseado em rede neural.}
+\label{fig:neuralnet_complete}
+\end{figure}

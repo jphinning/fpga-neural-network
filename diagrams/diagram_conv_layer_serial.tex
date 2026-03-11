@@ -1,0 +1,139 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Conv1D blocks (stacked vertically)
+% ---------------------------------------------------------
+\node[block, minimum width=3.5cm, minimum height=1.5cm, text width=3.0cm] (CE) at (0, 3.5) {%
+    \textbf{Conv1D}\\
+    {\footnotesize (envelope)}
+};
+
+\node[block, minimum width=3.5cm, minimum height=1.5cm, text width=3.0cm] (CC) at (0, 1.0) {%
+    \textbf{Conv1D}\\
+    {\footnotesize (cosine)}
+};
+
+\node[block, minimum width=3.5cm, minimum height=1.5cm, text width=3.0cm] (CS) at (0, -1.5) {%
+    \textbf{Conv1D}\\
+    {\footnotesize (sine)}
+};
+
+% ---------------------------------------------------------
+% Input ports (left)
+% ---------------------------------------------------------
+\node[port, left=3.0cm of CE] (BufE) {buf\_env$[0\!:\!M]$};
+\node[port, left=3.0cm of CC] (BufC) {buf\_cos$[0\!:\!M]$};
+\node[port, left=3.0cm of CS] (BufS) {buf\_sin$[0\!:\!M]$};
+
+\draw[data arrow] (BufE) -- (CE.west) node[bus, midway, below] {$/6$};
+\draw[data arrow] (BufC) -- (CC.west) node[bus, midway, below] {$/6$};
+\draw[data arrow] (BufS) -- (CS.west) node[bus, midway, below] {$/6$};
+
+% ---------------------------------------------------------
+% Weight ROM (top)
+% ---------------------------------------------------------
+\node[block, minimum width=4.5cm, minimum height=1.5cm, text width=4.0cm] (WROM) at (0, 6.5) {%
+    \textbf{Weight Selector}\\
+    {\footnotesize W\_CONV1\_WEIGHTS[$f \!\cdot\! K$]}\\
+    {\footnotesize W\_CONV1\_BIAS[$f$]}
+};
+
+% Weight distribution
+\draw[data arrow] (WROM.south) -- ++(0, -0.5)
+    node[signal, right, xshift=3pt] {\scriptsize $w_{curr}[0\!:\!3],\ b_{curr}$};
+\coordinate (wFork) at ($(WROM.south) + (0, -0.8)$);
+\node[dot] at (wFork) {};
+\draw[data arrow] (wFork) -| ($(CE.north) + (0.5, 0)$);
+\draw[data arrow] (wFork) -| ($(CC.north) + (0.5, 0)$);
+\draw[data arrow] (wFork) -| ($(CS.north) + (0.5, 0)$);
+
+% ---------------------------------------------------------
+% Pooling_ReLU Block (right)
+% ---------------------------------------------------------
+\node[block, minimum width=3.5cm, minimum height=3.5cm, text width=3.0cm, right=3.5cm of CC] (Pool) {%
+    \textbf{Pooling +}\\
+    \textbf{ReLU}\\[3pt]
+    {\footnotesize ReLU $\rightarrow$ sum}\\
+    {\footnotesize $\times \frac{1}{9}$}\\
+    {\footnotesize 9 values $\rightarrow$ 1}
+};
+
+% Connections from Conv1D to Pooling
+\draw[data arrow] (CE.east) -- ++(0.8, 0) |- ($(Pool.west) + (0, 1.0)$)
+    node[signal, pos=0.3, above] {\scriptsize res\_env$[0\!:\!2]$};
+\draw[data arrow] (CC.east) -- ($(Pool.west) + (0, 0)$)
+    node[signal, midway, above] {\scriptsize res\_cos$[0\!:\!2]$};
+\draw[data arrow] (CS.east) -- ++(0.8, 0) |- ($(Pool.west) + (0, -1.0)$)
+    node[signal, pos=0.3, below] {\scriptsize res\_sin$[0\!:\!2]$};
+
+% ---------------------------------------------------------
+% Output RAM + output
+% ---------------------------------------------------------
+\node[small block, right=2.0cm of Pool] (RAM) {%
+    ram\_flat\\
+    {\scriptsize $[f_{idx}]$}
+};
+\draw[data arrow] (Pool.east) -- (RAM.west)
+    node[signal, midway, above] {\scriptsize pool\_res};
+
+\node[port, right=1.5cm of RAM] (XFlat) {x\_flat\_out$[0\!:\!15]$};
+\draw[data arrow] (RAM.east) -- (XFlat) node[bus, midway, below] {$/16$};
+
+% ---------------------------------------------------------
+% Control FSM (bottom)
+% ---------------------------------------------------------
+\node[entity border, minimum width=5.0cm, minimum height=1.5cm] (FSM) at (0, -4.5) {};
+\node[font=\sffamily\small\bfseries, align=center] at (FSM.center) {%
+    Control FSM\\
+    {\footnotesize IDLE $\rightarrow$ LOAD\_W $\rightarrow$ RUN $\rightarrow$ POOL $\rightarrow$ SAVE $\rightarrow$ CHECK}
+};
+
+% FSM signals
+\node[port, left=2.0cm of FSM] (Start) {start};
+\draw[ctrl arrow] (Start) -- (FSM.west);
+
+\node[port, right=2.0cm of FSM] (Done) {done};
+\draw[ctrl arrow] (FSM.east) -- (Done);
+
+% Loop annotation
+\draw[ctrl arrow, ->] ($(FSM.north) + (2.0, 0)$) -- ++(0, 1.5)
+    node[signal, right] {\scriptsize $f_{idx}$: $0 \rightarrow 15$};
+
+% sub_start
+\draw[ctrl arrow] ($(FSM.north) + (-1.5, 0)$) -- ++(0, 2.0)
+    node[signal, left] {\scriptsize sub\_start};
+
+% sub_done feedback
+\draw[ctrl arrow] ($(CS.south) + (0.5, 0)$) -- ++(0, -1.2)
+    node[signal, right] {\scriptsize sub\_done};
+
+% Filter index to weight ROM
+\draw[ctrl arrow] ($(FSM.north) + (0, 0)$) -- ++(0, 0.8) -| ($(WROM.south) + (-1.5, 0)$)
+    node[signal, pos=0.3, right] {\scriptsize filter\_idx};
+
+% ---------------------------------------------------------
+% Loop annotation (prominent)
+% ---------------------------------------------------------
+\node[annotation, font=\sffamily\small\bfseries, right=0.5cm of FSM.east, yshift=-0.8cm] {%
+    $\times 16$ filters
+};
+
+% ---------------------------------------------------------
+% start input
+% ---------------------------------------------------------
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\noindent\textit{Serialized over 16 filters: for each filter, loads shared weights, runs 3 parallel Conv1D blocks, pools the 9 results into 1 scalar. Output: 16-element feature vector \textsf{x\_flat\_out}. Generics: \textsf{N\_FILTERS}$=16$, \textsf{KERNEL\_SIZE}$=4$, \textsf{M}$=5$.}
+
+\caption{Conv\_Layer\_Serial -- serialized 1D convolutional layer with 3 channels and 16 filters.}
+\label{fig:conv_layer}
+\end{figure}

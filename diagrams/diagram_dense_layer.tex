@@ -1,0 +1,137 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    op_node/.style={
+        circle, draw=black, very thick, minimum size=0.9cm, fill=white,
+        font=\sffamily\large
+    },
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% Input ports (left)
+% ---------------------------------------------------------
+\node[io_node] (VecIn) at (-7, 2.0) {input\_vec$[0\!:\!N_{in}\!-\!1]$};
+\node[io_node] (WIn)   at (-7, 0.0) {weights$[0\!:\!N_{in} \!\times\! N_{out}\!-\!1]$};
+\node[io_node] (BIn)   at (-7, -2.0) {biases$[0\!:\!N_{out}\!-\!1]$};
+
+% ---------------------------------------------------------
+% Index selectors
+% ---------------------------------------------------------
+\node[small block] (XSel) at (-3.5, 2.0) {$x[i]$};
+\node[small block] (WSel) at (-3.5, 0.0) {$w[j \!\cdot\! N_{in} \!+\! i]$};
+\node[small block] (BSel) at (-3.5, -2.0) {$b[j]$};
+
+\draw[data arrow] (VecIn) -- (XSel);
+\draw[data arrow] (WIn)   -- (WSel);
+\draw[data arrow] (BIn)   -- (BSel);
+
+% ---------------------------------------------------------
+% Multiplier
+% ---------------------------------------------------------
+\node[op_node] (Mult) at (-0.5, 1.0) {$\times$};
+\draw[data arrow] (XSel) -- ++(1.0, 0) |- ($(Mult.west) + (0, 0.3)$);
+\draw[data arrow] (WSel) -- ++(1.0, 0) |- ($(Mult.west) + (0, -0.3)$);
+
+% ---------------------------------------------------------
+% Truncate + Round
+% ---------------------------------------------------------
+\node[small block, right=1.2cm of Mult] (Trunc) {%
+    $[47\!:\!16]$\\
+    + round
+};
+\draw[data arrow] (Mult) -- (Trunc);
+
+% ---------------------------------------------------------
+% Accumulator
+% ---------------------------------------------------------
+\node[op_node, right=1.2cm of Trunc] (Add) {$+$};
+\draw[data arrow] (Trunc) -- (Add);
+
+% Feedback
+\node[small block, below=0.8cm of Add] (Acc) {acc};
+\draw[data arrow] (Add.east) -- ++(0.6, 0) |- (Acc.east);
+\draw[data arrow] (Acc.west) -| ($(Add.south) + (-0.4, 0)$) -- (Add.south);
+
+% Bias init
+\draw[ctrl arrow] (BSel) -| ($(Add.south) + (-0.4, -1.2)$)
+    node[const, below left=0.1cm] {\scriptsize init: acc $\leftarrow$ $b[j]$};
+
+% MAC loop annotation
+\draw[ctrl arrow, ->] ($(Trunc.south) + (0, -2.2)$)
+    .. controls +(-2, -0.5) and +(-3, -0.5) ..
+    ($(XSel.south) + (0, -0.3)$)
+    node[signal, midway, below] {\scriptsize $i = 0 \ldots N_{in}\!-\!1$};
+
+% ---------------------------------------------------------
+% Activation: LUT_Tanh (conditional)
+% ---------------------------------------------------------
+\node[block, dashed, minimum width=2.8cm, minimum height=1.8cm, text width=2.4cm,
+    right=2.5cm of Add] (LUT) {%
+    \textbf{LUT\_Tanh}\\[2pt]
+    {\footnotesize 4-stage pipeline}\\
+    {\footnotesize 1024 entries}
+};
+% Dashed annotation
+\node[const, above=0.2cm of LUT] {\scriptsize present when USE\_TANH = true};
+
+\draw[data arrow] (Add.east) -- ++(0.6, 0) -- ++(0, 1.5) -| (LUT.north)
+    node[signal, pos=0.3] {\scriptsize z (pre-activation)};
+
+% Bypass (linear mode)
+\coordinate (BypassStart) at ($(Add.east) + (0.6, 0)$);
+\node[dot] at (BypassStart) {};
+\coordinate (BypassEnd) at ($(LUT.east) + (2.0, 0)$);
+\draw[data arrow, densely dotted] (BypassStart) -- ++(0, -1.5) -| (BypassEnd)
+    node[signal, pos=0.5, below] {\scriptsize bypass (linear)};
+
+% ---------------------------------------------------------
+% Output RAM
+% ---------------------------------------------------------
+\node[small block, right=2.0cm of LUT] (OutRAM) {ram\_out$[j]$};
+\draw[data arrow] (LUT) -- (OutRAM) node[signal, midway, above] {\scriptsize $\tanh(z)$};
+\draw[data arrow] (BypassEnd) -- (OutRAM.south);
+
+% ---------------------------------------------------------
+% Output port
+% ---------------------------------------------------------
+\node[io_node, right=1.5cm of OutRAM] (VecOut) {output\_vec$[0\!:\!N_{out}\!-\!1]$};
+\draw[data arrow] (OutRAM) -- (VecOut);
+
+% ---------------------------------------------------------
+% Neuron loop annotation
+% ---------------------------------------------------------
+\draw[ctrl arrow, ->] ($(OutRAM.south) + (0, -0.5)$)
+    .. controls +(-3, -1.5) and +(-8, -1.5) ..
+    ($(BSel.south) + (0, -0.5)$)
+    node[signal, midway, below] {\scriptsize $j = 0 \ldots N_{out}\!-\!1$ (next neuron)};
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(VecIn)(BIn)(VecOut)(LUT), inner sep=18pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{equation*}
+    \text{out}[j] = f\!\left(b_j + \sum_{i=0}^{N_{in}-1} w_{j,i} \cdot x_i \right), \quad
+    f = \begin{cases} \tanh & \text{if USE\_TANH} = \texttt{true} \\ \text{identity} & \text{otherwise} \end{cases}
+\end{equation*}
+
+\noindent\textit{Serialized: one neuron at a time. MAC loop with round-to-nearest. Shared single LUT\_Tanh instance (4-cycle latency). Generics: \textsf{NUM\_INPUTS}, \textsf{NUM\_OUTPUTS}, \textsf{USE\_TANH}.}
+
+\caption{Dense\_Layer block -- fully-connected layer with serialized MAC and optional $\tanh$ activation.}
+\label{fig:dense_layer}
+\end{figure}

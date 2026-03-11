@@ -1,0 +1,110 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.5cm,
+    >=Stealth,
+    thick,
+    font=\sffamily\large
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    op_node/.style={
+        circle, draw=black, very thick, minimum size=0.9cm, fill=white
+    },
+    io_node/.style={
+        font=\bfseries\large
+    },
+    dot/.style={
+        circle, fill=black, inner sep=0pt, minimum size=4pt
+    }
+}
+
+% ---------------------------------------------------------
+% 1. Multipliers (The Column Backbone)
+% ---------------------------------------------------------
+\node[op_node] (Mult1) at (0, 4.5) {$\times$};
+\node[op_node] (Mult2) at (0, 1.5) {$\times$};
+\node[op_node] (Mult3) at (0, -1.5) {$\times$};
+\node[op_node] (Mult4) at (0, -4.5) {$\times$};
+
+% Labels
+\node[above right=0.1cm of Mult1, font=\scriptsize] {$Re \cdot \cos$};
+\node[above right=0.1cm of Mult2, font=\scriptsize] {$Im \cdot \sin$};
+\node[above right=0.1cm of Mult3, font=\scriptsize] {$Re \cdot \sin$};
+\node[above right=0.1cm of Mult4, font=\scriptsize] {$Im \cdot \cos$};
+
+% ---------------------------------------------------------
+% 2. Inputs (Far Left)
+% ---------------------------------------------------------
+\node[io_node] (InRe)  at (-5, 3.0) {$x_{Re}$};
+\node[io_node] (InCos) at (-5, 1.0) {$\cos \theta$};
+\node[io_node] (InSin) at (-5, -1.0) {$\sin \theta$};
+\node[io_node] (InIm)  at (-5, -3.0) {$x_{Im}$};
+
+% ---------------------------------------------------------
+% 3. Orthogonal Wiring
+% ---------------------------------------------------------
+% Re -> Mult1 and Mult3
+\draw (InRe) -- (-3.5, 3.0) coordinate (SplitRe);
+\node[dot] at (SplitRe) {};
+\draw[->] (SplitRe) |- (Mult1.west);
+\draw[->] (SplitRe) |- (Mult3.west);
+
+% Im -> Mult2 and Mult4
+\draw (InIm) -- (-3.0, -3.0) coordinate (SplitIm);
+\node[dot] at (SplitIm) {};
+\draw[->] (SplitIm) |- (Mult2.west);
+\draw[->] (SplitIm) |- (Mult4.west);
+
+% Cos -> Mult1 and Mult4
+\draw (InCos) -- (-2.5, 1.0) coordinate (SplitCos);
+\node[dot] at (SplitCos) {};
+\draw[->] (SplitCos) |- (Mult1.150);
+\draw[->] (SplitCos) |- (Mult4.210);
+
+% Sin -> Mult2 and Mult3
+\draw (InSin) -- (-2.0, -1.0) coordinate (SplitSin);
+\node[dot] at (SplitSin) {};
+\draw[->] (SplitSin) |- (Mult2.210);
+\draw[->] (SplitSin) |- (Mult3.150);
+
+% ---------------------------------------------------------
+% 4. Output Stage
+% ---------------------------------------------------------
+% Subtractor
+\node[op_node] (Sub) at (3, 3.0) {$-$};
+% Adder
+\node[op_node] (Add) at (3, -3.0) {$+$};
+
+\draw[->] (Mult1) -| (Sub.north);
+\draw[->] (Mult2) -| (Sub.south);
+\draw[->] (Mult3) -| (Add.north);
+\draw[->] (Mult4) -| (Add.south);
+
+% ---------------------------------------------------------
+% 5. Final Outputs
+% ---------------------------------------------------------
+\node[io_node, right=1.0cm of Sub] (OutI) {$I_{out}$};
+\node[io_node, right=1.0cm of Add] (OutQ) {$Q_{out}$};
+
+\draw[->] (Sub) -- (OutI);
+\draw[->] (Add) -- (OutQ);
+
+\end{tikzpicture}%
+}
+
+\vspace{5mm}
+\begin{align*}
+    I_{out} &= (x_{Re} \cdot \cos\theta) - (x_{Im} \cdot \sin\theta) \\
+    Q_{out} &= (x_{Re} \cdot \sin\theta) + (x_{Im} \cdot \cos\theta)
+\end{align*}
+
+\noindent\textit{All four products computed in parallel (64-bit). Result truncated to $[47\!:\!16]$ (Q16.16). Enable gate provides sample-and-hold behavior.}
+
+\caption{Complex\_Mult\_Output block -- complex multiplication with orthogonal signal routing.}
+\label{fig:complex_mult}
+\end{figure}

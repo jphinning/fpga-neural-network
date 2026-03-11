@@ -1,0 +1,107 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Pipeline stage boxes
+% ---------------------------------------------------------
+\tikzset{
+    pipestage/.style={
+        rectangle, draw, very thick,
+        minimum width=3.0cm, minimum height=2.8cm,
+        font=\sffamily\small, align=center,
+        text width=2.6cm
+    }
+}
+
+% Stage 1: Address + Saturation
+\node[pipestage] (S1) at (0, 0) {%
+    \textbf{Address Calc}\\[2pt]
+    $addr = x_{in} + 2.0$\\[2pt]
+    Saturate:\\
+    $x \geq 2.0 \Rightarrow 1023$\\
+    $x < -2.0 \Rightarrow 0$\\[2pt]
+    $idx = addr[17\!:\!8]$\\
+    $\Delta x = addr[7\!:\!0]$
+};
+
+% Stage 2: ROM Lookup
+\node[pipestage, right=2.0cm of S1] (S2) {%
+    \textbf{ROM Lookup}\\[2pt]
+    1024 entries\\[2pt]
+    $y_0 = \text{ROM}_Y[idx]$\\[2pt]
+    $s = \text{ROM}_S[idx]$
+};
+
+% Stage 3: Interpolation
+\node[pipestage, right=2.0cm of S2] (S3) {%
+    \textbf{Interpolation}\\[2pt]
+    $\Delta y = s \times \Delta x$\\[2pt]
+    {\footnotesize truncate $[47\!:\!16]$}
+};
+
+% Stage 4: Output
+\node[pipestage, right=2.0cm of S3] (S4) {%
+    \textbf{Output}\\[2pt]
+    $y_{out} = y_0 + \Delta y$
+};
+
+% ---------------------------------------------------------
+% Pipeline register bars
+% ---------------------------------------------------------
+\foreach \a/\b in {S1/S2, S2/S3, S3/S4} {
+    \coordinate (mid) at ($(\a.east)!0.5!(\b.west)$);
+    \draw[stage sep] ($(mid) + (0, 2.0)$) -- ($(mid) + (0, -2.0)$);
+    \draw[fill=black] ($(mid) + (-0.08, 1.6)$) rectangle ($(mid) + (0.08, -1.6)$);
+}
+
+% Stage labels
+\node[font=\sffamily\scriptsize, above=0.1cm of S1] {Stage 1};
+\node[font=\sffamily\scriptsize, above=0.1cm of S2] {Stage 2};
+\node[font=\sffamily\scriptsize, above=0.1cm of S3] {Stage 3};
+\node[font=\sffamily\scriptsize, above=0.1cm of S4] {Stage 4};
+
+% ---------------------------------------------------------
+% Data flow arrows
+% ---------------------------------------------------------
+\draw[data arrow] (S1) -- (S2);
+\draw[data arrow] (S2) -- (S3);
+\draw[data arrow] (S3) -- (S4);
+
+% y_0 bypass
+\coordinate (bypassStart) at ($(S2.east) + (0, -1.0)$);
+\coordinate (bypassEnd) at ($(S4.west) + (0, -1.0)$);
+\draw[data arrow] (bypassStart) -- (bypassEnd)
+    node[signal, midway] {$y_0$ delay};
+
+% ---------------------------------------------------------
+% Input / Output
+% ---------------------------------------------------------
+\node[port, left=1.5cm of S1] (xin) {$x_{in}$};
+\draw[data arrow] (xin) -- (S1.west);
+
+\node[port, right=1.5cm of S4] (yout) {$y_{out}$};
+\draw[data arrow] (S4.east) -- (yout);
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(S1)(S4)(xin)(yout), inner sep=15pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{align*}
+    y_{out} &= \tanh(x_{in}) \approx y_0[idx] + \text{slope}[idx] \times \Delta x
+\end{align*}
+
+\noindent\textit{Pipeline latency: 4 clock cycles. ROM: 1024 entries for range $[-2.0, +2.0]$. Saturates to $\tanh(\pm 2.0)$ for out-of-range inputs.}
+
+\caption{LUT\_Tanh block -- 4-stage pipelined $\tanh$ lookup with linear interpolation and saturation.}
+\label{fig:lut_tanh}
+\end{figure}

@@ -1,0 +1,173 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Packages
+% ========================================================================
+\usepackage[margin=2cm]{geometry}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+
+% TikZ Libraries
+\usetikzlibrary{
+    arrows.meta,
+    positioning,
+    calc,
+    shapes.geometric,
+    fit,
+    decorations.markings,
+    patterns
+}
+
+% ========================================================================
+% Shared TikZ Style Definitions
+% ========================================================================
+\tikzset{
+    % --- Sub-block (abstracted entity shown as rectangle) ---
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center,
+        text width=3cm
+    },
+    % --- Wider block for top-level stages ---
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    % --- Small utility block (delay, mux, ROM) ---
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    % --- Arithmetic operator circle ---
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm,
+        font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    % --- Wire junction dot ---
+    dot/.style = {
+        circle, fill=black,
+        minimum size=3pt, inner sep=0pt
+    },
+    % --- Port label (bold, input/output names) ---
+    port/.style = {
+        font=\sffamily\bfseries\small
+    },
+    % --- Signal label on wire ---
+    signal/.style = {
+        font=\sffamily\footnotesize,
+        fill=white, inner sep=1pt
+    },
+    % --- Bus width slash annotation ---
+    bus/.style = {
+        font=\sffamily\scriptsize
+    },
+    % --- Dashed enclosure (entity boundary or FSM) ---
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    % --- Pipeline stage separator ---
+    stage sep/.style = {
+        dashed, thin, black!50
+    },
+    % --- Register box (D flip-flop) ---
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    % --- Data flow arrow ---
+    data arrow/.style = {
+        -Stealth, thick
+    },
+    % --- Control signal arrow ---
+    ctrl arrow/.style = {
+        -Stealth, thin, dashed
+    },
+    % --- Constant/generic input label ---
+    const/.style = {
+        font=\sffamily\itshape\footnotesize
+    },
+    % --- Annotation text ---
+    annotation/.style = {
+        font=\sffamily\small,
+        align=left
+    },
+    % --- General thick arrow (default for connections) ---
+    >=Stealth,
+    thick,
+    font=\sffamily
+}
+
+% ========================================================================
+% Bus slash macro
+% ========================================================================
+\newcommand{\busmark}[1]{%
+    \tikz[baseline=-0.5ex]{
+        \draw[thick] (-0.15,-0.15) -- (0.15,0.15);
+        \node[font=\sffamily\scriptsize, above left=-1pt] {#1};
+    }%
+}
+
+% ========================================================================
+% Document
+% ========================================================================
+\begin{document}
+
+\begin{center}
+    {\LARGE\sffamily\bfseries Block Diagrams: Neural Network DPD in VHDL}\\[3mm]
+    {\large\sffamily CMEMP Model -- Fixed-Point Q16.16 Implementation}
+\end{center}
+
+\vspace{5mm}
+
+% ---- Top-Level ----
+\section{System Architecture}
+\input{diagram_neuralnet_complete}
+
+% ---- Stage 1 ----
+\section{Stage 1: Input Processing}
+\input{diagram_top_neuralnet_s1}
+
+\subsection{Input Processing Block}
+\input{diagram_input_processing}
+
+\subsection{Trigonometric LUT}
+\input{diagram_lut_trig}
+
+\subsection{Shift Register}
+\input{diagram_shift_register}
+
+% ---- Stage 2 ----
+\section{Stage 2: Convolutional Layer}
+\input{diagram_conv_layer_serial}
+
+\subsection{Conv1D Block}
+\input{diagram_conv1d_block}
+
+\subsection{Pooling and ReLU}
+\input{diagram_pooling_relu}
+
+% ---- Stage 3 ----
+\section{Stage 3: MLP Backend}
+\input{diagram_backend_wrapper}
+
+\subsection{MLP Chain}
+\input{diagram_mlp_chain_serial}
+
+\subsection{Dense Layer}
+\input{diagram_dense_layer}
+
+\subsection{Tanh LUT}
+\input{diagram_lut_tanh}
+
+\subsection{Complex Multiplication Output}
+\input{diagram_complex_mult}
+
+\end{document}

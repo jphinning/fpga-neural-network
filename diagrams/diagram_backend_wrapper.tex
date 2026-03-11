@@ -1,0 +1,148 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% MLP blocks (stacked vertically, left side)
+% ---------------------------------------------------------
+\node[block, minimum width=4.5cm, minimum height=2.0cm, text width=4.0cm] (MLP_R) at (0, 3.0) {%
+    \textbf{MLP\_Chain\_Serial}\\
+    {\footnotesize (Real Branch)}\\[2pt]
+    {\footnotesize $16 \!\rightarrow\! 25 \!\rightarrow\! 25 \!\rightarrow\! 1$}
+};
+
+\node[block, minimum width=4.5cm, minimum height=2.0cm, text width=4.0cm] (MLP_I) at (0, -0.5) {%
+    \textbf{MLP\_Chain\_Serial}\\
+    {\footnotesize (Imaginary Branch)}\\[2pt]
+    {\footnotesize $16 \!\rightarrow\! 25 \!\rightarrow\! 25 \!\rightarrow\! 1$}
+};
+
+% ---------------------------------------------------------
+% LUT Trig blocks (below MLPs)
+% ---------------------------------------------------------
+\node[block, minimum width=3.0cm, minimum height=1.5cm, text width=2.5cm] (LUT_C) at (0, -4.0) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (cos)}
+};
+
+\node[block, minimum width=3.0cm, minimum height=1.5cm, text width=2.5cm] (LUT_S) at (0, -6.5) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (sin)}
+};
+
+% ---------------------------------------------------------
+% Complex_Mult_Output (right side)
+% ---------------------------------------------------------
+\node[block, minimum width=4.0cm, minimum height=4.5cm, text width=3.5cm] (CMult) at (8.0, -1.0) {%
+    \textbf{Complex\_Mult}\\
+    \textbf{\_Output}\\[5pt]
+    {\footnotesize $I = Re \!\cdot\! \cos\theta$}\\
+    {\footnotesize $\quad - Im \!\cdot\! \sin\theta$}\\[2pt]
+    {\footnotesize $Q = Re \!\cdot\! \sin\theta$}\\
+    {\footnotesize $\quad + Im \!\cdot\! \cos\theta$}
+};
+
+% ---------------------------------------------------------
+% Input: x_flat_in (far left, feeds both MLPs)
+% ---------------------------------------------------------
+\node[io_node] (XFlat) at (-6.0, 1.25) {x\_flat\_in$[0\!:\!15]$};
+\draw[data arrow] (XFlat) -- ++(1.5, 0) coordinate (xFork);
+\node[dot] at (xFork) {};
+\draw[data arrow] (xFork) |- (MLP_R.west)
+    node[bus, pos=0.2, left] {$/16$};
+\draw[data arrow] (xFork) |- (MLP_I.west);
+
+% ---------------------------------------------------------
+% Input: theta_in (far left, feeds both LUTs)
+% ---------------------------------------------------------
+\node[io_node] (Theta) at (-6.0, -5.25) {theta\_in};
+\draw[data arrow] (Theta) -- ++(1.5, 0) coordinate (tFork);
+\node[dot] at (tFork) {};
+\draw[data arrow] (tFork) |- (LUT_C.west);
+\draw[data arrow] (tFork) |- (LUT_S.west);
+
+% ---------------------------------------------------------
+% Input: start
+% ---------------------------------------------------------
+\node[io_node] (Start) at (-6.0, -1.5) {start};
+\draw[ctrl arrow] (Start) -- ++(1.0, 0) coordinate (sFork);
+\node[dot] at (sFork) {};
+\draw[ctrl arrow] (sFork) |- ($(MLP_R.west) + (0, -0.5)$);
+\draw[ctrl arrow] (sFork) |- ($(MLP_I.west) + (0, -0.5)$);
+
+% ---------------------------------------------------------
+% MLP outputs -> Complex_Mult
+% ---------------------------------------------------------
+\draw[data arrow] (MLP_R.east) -- ++(1.0, 0) |- ($(CMult.west) + (0, 1.5)$)
+    node[signal, pos=0.3, above] {\scriptsize real\_mlp\_out};
+
+\draw[data arrow] (MLP_I.east) -- ++(1.5, 0) |- ($(CMult.west) + (0, 0.5)$)
+    node[signal, pos=0.3, above] {\scriptsize imag\_mlp\_out};
+
+% ---------------------------------------------------------
+% LUT outputs -> Complex_Mult
+% ---------------------------------------------------------
+\draw[data arrow] (LUT_C.east) -- ++(2.0, 0) |- ($(CMult.west) + (0, -0.5)$)
+    node[signal, pos=0.3, below] {\scriptsize $\cos(\theta)$};
+
+\draw[data arrow] (LUT_S.east) -- ++(2.5, 0) |- ($(CMult.west) + (0, -1.5)$)
+    node[signal, pos=0.3, below] {\scriptsize $\sin(\theta)$};
+
+% ---------------------------------------------------------
+% Control: done signals
+% ---------------------------------------------------------
+% MLP done -> FSM -> mult_en
+\node[entity border, minimum width=2.5cm, minimum height=1.0cm] (FSM) at (4.5, -7.5) {};
+\node[font=\sffamily\footnotesize\bfseries] at (FSM.center) {Control FSM};
+
+\draw[ctrl arrow] ($(MLP_R.east) + (0, -0.5)$) -- ++(0.5, 0) |- ($(FSM.north) + (-0.5, 0)$)
+    node[signal, pos=0.8, left] {\scriptsize real\_done};
+\draw[ctrl arrow] ($(MLP_I.east) + (0, -0.5)$) -- ++(0.8, 0) |- ($(FSM.north) + (0.5, 0)$)
+    node[signal, pos=0.8, right] {\scriptsize imag\_done};
+
+\draw[ctrl arrow] (FSM.east) -| ($(CMult.south) + (0.5, 0)$)
+    node[signal, pos=0.3, below] {\scriptsize mult\_en};
+
+% ---------------------------------------------------------
+% Outputs (far right)
+% ---------------------------------------------------------
+\node[io_node, right=2.0cm of CMult] (Iout) at ($(CMult.east) + (2.0, 0.5)$) {$i_{out}$};
+\node[io_node] (Qout) at ($(CMult.east) + (2.0, -0.5)$) {$q_{out}$};
+
+\draw[data arrow] ($(CMult.east) + (0, 0.5)$) -- (Iout);
+\draw[data arrow] ($(CMult.east) + (0, -0.5)$) -- (Qout);
+
+\node[io_node] (DoneOut) at ($(FSM.east) + (5.5, 0)$) {done};
+\draw[ctrl arrow] (FSM.east) -- ++(0.5, 0) |- (DoneOut);
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(XFlat)(Theta)(Start)(Iout)(Qout)(DoneOut)(LUT_S)(FSM)(MLP_R), inner sep=18pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{align*}
+    i_{out} &= \text{Re}_{\text{MLP}} \cdot \cos(\theta) - \text{Im}_{\text{MLP}} \cdot \sin(\theta) \\
+    q_{out} &= \text{Re}_{\text{MLP}} \cdot \sin(\theta) + \text{Im}_{\text{MLP}} \cdot \cos(\theta)
+\end{align*}
+
+\noindent\textit{Both MLP branches run in parallel. LUT\_Trig computes $\cos/\sin$ of the captured phase. Complex multiplication rotates the MLP output to reconstruct the pre-distorted IQ signal.}
+
+\caption{BackEnd\_Wrapper -- dual MLP branches with phase rotation output stage.}
+\label{fig:backend_wrapper}
+\end{figure}

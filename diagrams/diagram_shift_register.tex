@@ -1,0 +1,95 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 1.8cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    reg/.style={
+        rectangle, draw, very thick,
+        minimum width=1.2cm, minimum height=1.2cm,
+        font=\sffamily\small, align=center
+    }
+}
+
+% ---------------------------------------------------------
+% Register chain
+% ---------------------------------------------------------
+\node[reg] (R0) at (0, 0) {$r[0]$};
+\node[reg, right=1.5cm of R0] (R1) {$r[1]$};
+\node[reg, right=1.5cm of R1] (R2) {$r[2]$};
+\node[right=1.0cm of R2, font=\sffamily\Large] (dots) {$\cdots$};
+\node[reg, right=1.0cm of dots] (RM1) {$r[M\!-\!1]$};
+\node[reg, right=1.5cm of RM1] (RM) {$r[M]$};
+
+% ---------------------------------------------------------
+% Input
+% ---------------------------------------------------------
+\node[port, left=1.5cm of R0] (DataIn) {data\_in};
+\draw[data arrow] (DataIn) -- (R0.west);
+
+% ---------------------------------------------------------
+% Arrows between registers
+% ---------------------------------------------------------
+\draw[data arrow] (R0) -- (R1);
+\draw[data arrow] (R1) -- (R2);
+\draw[data arrow] (R2) -- (dots);
+\draw[data arrow] (dots) -- (RM1);
+\draw[data arrow] (RM1) -- (RM);
+
+% ---------------------------------------------------------
+% Enable signal (top)
+% ---------------------------------------------------------
+\node[port, above=1.5cm of dots] (Enable) {enable};
+\draw[ctrl arrow] (Enable) -- ++(0, -0.8);
+\node[const, above=0.2cm of R0] {\scriptsize en};
+\node[const, above=0.2cm of R1] {\scriptsize en};
+\node[const, above=0.2cm of R2] {\scriptsize en};
+\node[const, above=0.2cm of RM1] {\scriptsize en};
+\node[const, above=0.2cm of RM] {\scriptsize en};
+
+% ---------------------------------------------------------
+% Output taps
+% ---------------------------------------------------------
+\foreach \rname/\idx in {R0/0, R1/1, R2/2, RM1/{M\!-\!1}, RM/M} {
+    \draw[data arrow] (\rname.south) -- ++(0, -1.0)
+        node[below, font=\sffamily\footnotesize] {$d_{out}[\idx]$};
+}
+
+% ---------------------------------------------------------
+% Output bus collector
+% ---------------------------------------------------------
+\coordinate (busL) at ($(R0.south) + (0, -1.6)$);
+\coordinate (busR) at ($(RM.south) + (0, -1.6)$);
+\draw[very thick] (busL) -- (busR);
+\node[port, right=0.5cm of busR] (BusOut) {data\_out$[0\!:\!M]$};
+\draw[data arrow] (busR) -- (BusOut);
+
+% Bus slash
+\node[bus] at ($(busR) + (0.2, 0.3)$) {$/M\!+\!1$};
+
+% ---------------------------------------------------------
+% Clock/Reset
+% ---------------------------------------------------------
+\node[port, above left=1.0cm and 0.5cm of R0] (Clk) {clk};
+\node[port, above right=1.0cm and 0.5cm of RM] (Rst) {rst};
+
+% ---------------------------------------------------------
+% Dashed entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(R0)(RM)(Enable)(busL)(busR), inner sep=12pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\noindent\textit{Shift direction: new data enters at $r[0]$; oldest sample at $r[M]$. Shift occurs on rising edge of \textsf{clk} when \textsf{enable}~$= 1$.}
+
+\caption{Shift Register block -- sliding window buffer (Generic: \textsf{DEPTH}$= M$, producing $M+1$ taps).}
+\label{fig:shift_register}
+\end{figure}

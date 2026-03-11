@@ -1,0 +1,108 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.5cm,
+    >=Stealth, thick, font=\sffamily\large
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    op_node/.style={
+        circle, draw=black, very thick, minimum size=0.9cm, fill=white
+    },
+    io_node/.style={font=\sffamily\bfseries},
+    relu_box/.style={
+        rectangle, draw, very thick,
+        minimum width=2.0cm, minimum height=1.0cm,
+        font=\sffamily\small, align=center
+    },
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% Stage labels
+% ---------------------------------------------------------
+\node[font=\sffamily\small\bfseries] at (-3.5, 4.5) {Stage 1 (registered)};
+\node[font=\sffamily\small\bfseries] at (5.5, 4.5) {Stage 2 (registered)};
+
+% Stage separator
+\draw[stage sep] (2.5, 5.0) -- (2.5, -4.5);
+\draw[fill=black] (2.42, 4.5) rectangle (2.58, -4.0);
+
+% ---------------------------------------------------------
+% Inputs (left side)
+% ---------------------------------------------------------
+\node[io_node] (InEnv) at (-7.5, 2.5) {data\_in\_env$[0\!:\!2]$};
+\node[io_node] (InCos) at (-7.5, 0.0) {data\_in\_cos$[0\!:\!2]$};
+\node[io_node] (InSin) at (-7.5, -2.5) {data\_in\_sin$[0\!:\!2]$};
+
+% ---------------------------------------------------------
+% ReLU blocks (one per channel)
+% ---------------------------------------------------------
+\node[relu_box] (ReLU_E) at (-3.5, 2.5) {ReLU\\$\max(0, x)$};
+\node[relu_box] (ReLU_C) at (-3.5, 0.0) {ReLU\\$\max(0, x)$};
+\node[relu_box] (ReLU_S) at (-3.5, -2.5) {ReLU\\$\max(0, x)$};
+
+\draw[data arrow] (InEnv) -- (ReLU_E);
+\draw[data arrow] (InCos) -- (ReLU_C);
+\draw[data arrow] (InSin) -- (ReLU_S);
+
+% Annotation: applied to all 3 values per channel
+\node[const, below=0.1cm of ReLU_S] {\scriptsize applied to each of 3 values};
+
+% ---------------------------------------------------------
+% Summation (all 9 values)
+% ---------------------------------------------------------
+\node[op_node] (Sum) at (0.0, 0.0) {$\Sigma$};
+
+\draw[data arrow] (ReLU_E.east) -- ++(0.5, 0) |- ($(Sum.west) + (0, 0.5)$);
+\draw[data arrow] (ReLU_C.east) -- (Sum.west);
+\draw[data arrow] (ReLU_S.east) -- ++(0.5, 0) |- ($(Sum.west) + (0, -0.5)$);
+
+\node[signal, above=0.3cm of Sum] {\scriptsize $\sum$ of 9 values};
+
+% ---------------------------------------------------------
+% Stage 2: Multiply by reciprocal
+% ---------------------------------------------------------
+\node[op_node] (Mult) at (5.0, 0.0) {$\times$};
+
+\draw[data arrow] (Sum) -- (Mult) node[signal, midway, above] {\scriptsize sum};
+
+% Reciprocal input from top
+\node[io_node, above=1.5cm of Mult] (Recip) {pool\_reciprocal};
+\draw[data arrow] (Recip) -- (Mult);
+\node[const, right=0.2cm of Recip] {\scriptsize $\frac{1}{9}$ in Q16.16};
+
+% ---------------------------------------------------------
+% Truncate
+% ---------------------------------------------------------
+\node[small block, right=1.5cm of Mult] (Trunc) {$[47\!:\!16]$};
+\draw[data arrow] (Mult) -- (Trunc);
+
+% ---------------------------------------------------------
+% Output
+% ---------------------------------------------------------
+\node[io_node, right=1.5cm of Trunc] (Out) {data\_out};
+\draw[data arrow] (Trunc) -- (Out);
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(InEnv)(InSin)(Out)(Recip), inner sep=15pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{equation*}
+    \text{data\_out} = \frac{1}{3 \times W_{out}} \sum_{c \in \{\text{env}, \text{cos}, \text{sin}\}} \sum_{i=0}^{W_{out}-1} \text{ReLU}(x_{c,i})
+\end{equation*}
+
+\noindent\textit{Generic: \textsf{INPUT\_SIZE}$= 3$ ($W_{out}$). Total 9 values pooled into 1 scalar. 2-stage registered pipeline.}
+
+\caption{Pooling\_ReLU\_Block -- ReLU activation followed by global average pooling across 3 channels.}
+\label{fig:pooling_relu}
+\end{figure}

@@ -1,0 +1,105 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 2.5cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Dense Layer blocks (chain)
+% ---------------------------------------------------------
+\node[block, minimum width=4.0cm, minimum height=2.5cm, text width=3.5cm] (L1) at (0, 0) {%
+    \textbf{Dense Layer 1}\\[3pt]
+    $16 \rightarrow 25$\\[2pt]
+    {\footnotesize activation: $\tanh$}
+};
+
+\node[block, minimum width=4.0cm, minimum height=2.5cm, text width=3.5cm, right=3.0cm of L1] (L2) {%
+    \textbf{Dense Layer 2}\\[3pt]
+    $25 \rightarrow 25$\\[2pt]
+    {\footnotesize activation: $\tanh$}
+};
+
+\node[block, minimum width=4.0cm, minimum height=2.5cm, text width=3.5cm, right=3.0cm of L2] (L3) {%
+    \textbf{Dense Layer 3}\\[3pt]
+    $25 \rightarrow 1$\\[2pt]
+    {\footnotesize activation: linear}
+};
+
+% ---------------------------------------------------------
+% Data flow between layers
+% ---------------------------------------------------------
+\draw[data arrow] (L1.east) -- (L2.west)
+    node[signal, midway, above] {$l1\_out[0\!:\!24]$};
+\draw[data arrow] (L2.east) -- (L3.west)
+    node[signal, midway, above] {$l2\_out[0\!:\!24]$};
+
+% Bus width marks
+\node[bus] at ($(L1.east)!0.5!(L2.west) + (0, -0.3)$) {$/25$};
+\node[bus] at ($(L2.east)!0.5!(L3.west) + (0, -0.3)$) {$/25$};
+
+% ---------------------------------------------------------
+% Handshake signals (start/done chain)
+% ---------------------------------------------------------
+% start -> L1
+\coordinate (startWire) at ($(L1.west) + (-2.0, -0.8)$);
+\node[port, left=0.1cm of startWire] {start};
+\draw[ctrl arrow] (startWire) -- ($(L1.west) + (0, -0.8)$);
+
+% L1.done -> L2.start
+\draw[ctrl arrow] ($(L1.east) + (0, -0.8)$) -- ($(L2.west) + (0, -0.8)$)
+    node[signal, midway, below] {\scriptsize l1\_done $\rightarrow$ l2\_start};
+
+% L2.done -> L3.start
+\draw[ctrl arrow] ($(L2.east) + (0, -0.8)$) -- ($(L3.west) + (0, -0.8)$)
+    node[signal, midway, below] {\scriptsize l2\_done $\rightarrow$ l3\_start};
+
+% L3.done -> done output
+\coordinate (doneWire) at ($(L3.east) + (2.0, -0.8)$);
+\node[port, right=0.1cm of doneWire] {done};
+\draw[ctrl arrow] ($(L3.east) + (0, -0.8)$) -- (doneWire);
+
+% ---------------------------------------------------------
+% Input port (left)
+% ---------------------------------------------------------
+\node[port, left=2.0cm of L1] (VecIn) {input\_vec$[0\!:\!15]$};
+\draw[data arrow] (VecIn) -- (L1.west)
+    node[bus, midway, below] {$/16$};
+
+% ---------------------------------------------------------
+% Output port (right)
+% ---------------------------------------------------------
+\node[port, right=2.0cm of L3] (MlpOut) {mlp\_out};
+\draw[data arrow] (L3.east) -- (MlpOut)
+    node[signal, midway, above] {\scriptsize $l3\_out[0]$};
+
+% ---------------------------------------------------------
+% Weight/bias inputs (from top, per layer)
+% ---------------------------------------------------------
+\node[const, above=1.2cm of L1] (W1) {$\mathbf{W}_1[0\!:\!399],\ \mathbf{b}_1[0\!:\!24]$};
+\draw[data arrow] (W1) -- (L1.north);
+\node[font=\sffamily\scriptsize, above=0.1cm of W1] {from ROM};
+
+\node[const, above=1.2cm of L2] (W2) {$\mathbf{W}_2[0\!:\!624],\ \mathbf{b}_2[0\!:\!24]$};
+\draw[data arrow] (W2) -- (L2.north);
+\node[font=\sffamily\scriptsize, above=0.1cm of W2] {from ROM};
+
+\node[const, above=1.2cm of L3] (W3) {$\mathbf{W}_3[0\!:\!24],\ \mathbf{b}_3[0\!:\!0]$};
+\draw[data arrow] (W3) -- (L3.north);
+\node[font=\sffamily\scriptsize, above=0.1cm of W3] {from ROM};
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(VecIn)(MlpOut)(W1)(W2)(W3)(startWire)(doneWire), inner sep=12pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\noindent\textit{Sequential execution: Layer 1 completes $\rightarrow$ triggers Layer 2 $\rightarrow$ triggers Layer 3. Start/done handshake between layers. Weights and biases loaded from \textsf{pkg\_model\_constants}.}
+
+\caption{MLP\_Chain\_Serial -- 3-layer fully-connected network ($16 \!\rightarrow\! 25 \!\rightarrow\! 25 \!\rightarrow\! 1$).}
+\label{fig:mlp_chain}
+\end{figure}

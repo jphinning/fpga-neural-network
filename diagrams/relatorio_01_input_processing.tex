@@ -1,0 +1,930 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    stage sep/.style = {dashed, thin, black!50},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL para listings
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlstring}{RGB}{160, 0, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{100, 100, 100}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    stringstyle=\color{vhdlstring},
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    breakatwhitespace=false,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic, std_logic_vector}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabecalho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Etapa 1: Input Processing Block}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+% -----------------------------------------------------------------------
+% Capa
+% -----------------------------------------------------------------------
+\begin{titlepage}
+\centering
+\vspace*{3cm}
+
+{\huge\sffamily\bfseries Implementa\c{c}\~{a}o em VHDL de\\[5pt] Rede Neural para DPD}\\[1cm]
+{\Large\sffamily Modelo CMEMP -- Ponto Fixo Q16.16}\\[2cm]
+
+{\large\sffamily\bfseries Relat\'{o}rio de Progresso -- Etapa 1}\\[0.5cm]
+{\large\sffamily Bloco de Processamento de Entrada}\\[3cm]
+
+\vfill
+
+{\sffamily\today}
+
+\end{titlepage}
+
+% -----------------------------------------------------------------------
+% Sum\'{a}rio
+% -----------------------------------------------------------------------
+\tableofcontents
+\newpage
+
+% =======================================================================
+\section{Vis\~{a}o Geral do Sistema}
+% =======================================================================
+
+O objetivo deste projeto \'{e} implementar em VHDL uma rede neural para lineariza\c{c}\~{a}o de amplificadores de pot\^{e}ncia (DPD -- \textit{Digital Pre-Distortion}), utilizando o modelo CMEMP (\textit{Cross-Memory Even-order Modified Parallel}). A rede opera em aritm\'{e}tica de ponto fixo Q16.16 (32 bits com sinal, 16 bits fracion\'{a}rios).
+
+A arquitetura completa \'{e} dividida em tr\^{e}s est\'{a}gios de processamento sequencial, conforme ilustrado na Figura~\ref{fig:sistema_completo}:
+
+\begin{enumerate}
+    \item \textbf{Est\'{a}gio 1 -- Processamento de Entrada:} Converte as amostras IQ retangulares para coordenadas polares, realiza decomposi\c{c}\~{a}o trigonom\'{e}trica e mant\'{e}m buffers deslizantes com hist\'{o}rico de $M+1$ amostras.
+    \item \textbf{Est\'{a}gio 2 -- Camada Convolucional:} Aplica 16 filtros convolucionais 1D (serializados) sobre os tr\^{e}s canais (envelope, cosseno e seno), seguidos de ativa\c{c}\~{a}o ReLU e \textit{average pooling}.
+    \item \textbf{Est\'{a}gio 3 -- MLP e Sa\'{i}da:} Duas redes MLP paralelas (ramo real e imagin\'{a}rio) processam o vetor de caracter\'{i}sticas, seguidas de rota\c{c}\~{a}o de fase via multiplica\c{c}\~{a}o complexa.
+\end{enumerate}
+
+O plano de implementa\c{c}\~{a}o segue uma abordagem \textit{bottom-up}: construir, testar e validar cada bloco individualmente antes de integr\'{a}-los. \textbf{Este relat\'{o}rio documenta a primeira etapa: o projeto e valida\c{c}\~{a}o do \texttt{Input\_Processing\_Block}}, que \'{e} o bloco fundamental do Est\'{a}gio~1.
+
+% -----------------------------------------------------------------------
+% Diagrama do Sistema Completo (em portugu\^{e}s, sem FSM)
+% -----------------------------------------------------------------------
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.5cm and 2.5cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% --- Tr\^{e}s est\'{a}gios ---
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S1) at (0, 0) {%
+    \textbf{Est\'{a}gio 1}\\
+    \textbf{Processamento}\\
+    \textbf{de Entrada}\\[5pt]
+    {\footnotesize Top\_NeuralNet\_S1}\\[3pt]
+    {\footnotesize IQ $\rightarrow$ Polar}\\
+    {\footnotesize Decomp. trigonom.}\\
+    {\footnotesize Buffers deslizantes}
+};
+
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S2) at ($(S1.east) + (6.5, 0)$) {%
+    \textbf{Est\'{a}gio 2}\\
+    \textbf{Convolu\c{c}\~{a}o}\\[5pt]
+    {\footnotesize Conv\_Layer\_Serial}\\[3pt]
+    {\footnotesize Conv1D 3 canais}\\
+    {\footnotesize 16 filtros (serial.)}\\
+    {\footnotesize ReLU + Avg Pool}
+};
+
+\node[wide block, minimum height=4.5cm, text width=4.0cm] (S3) at ($(S2.east) + (6.5, 0)$) {%
+    \textbf{Est\'{a}gio 3}\\
+    \textbf{MLP + Sa\'{i}da}\\[5pt]
+    {\footnotesize BackEnd\_Wrapper}\\[3pt]
+    {\footnotesize 2 ramos MLP}\\
+    {\footnotesize Rota\c{c}\~{a}o de fase}\\
+    {\footnotesize Mult. complexa}
+};
+
+% --- Entradas ---
+\node[io_node] (Iin) at ($(S1.west) + (-3.5, 1.0)$) {$i_{in}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Qin) at ($(S1.west) + (-3.5, -0.3)$) {$q_{in}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Vin) at ($(S1.west) + (-3.5, -1.5)$) {input\_valid};
+
+\draw[data arrow] (Iin) -- ($(S1.west) + (0, 1.0)$);
+\draw[data arrow] (Qin) -- ($(S1.west) + (0, -0.3)$);
+\draw[ctrl arrow] (Vin) -- ($(S1.west) + (0, -1.5)$);
+
+% --- S1 -> S2: barramentos de buffer ---
+\draw[data arrow] ($(S1.east) + (0, 1.2)$) -- ($(S2.west) + (0, 1.2)$)
+    node[signal, midway, above] {buf\_env$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+\draw[data arrow] ($(S1.east) + (0, 0.0)$) -- ($(S2.west) + (0, 0.0)$)
+    node[signal, midway, above] {buf\_cos$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+\draw[data arrow] ($(S1.east) + (0, -1.2)$) -- ($(S2.west) + (0, -1.2)$)
+    node[signal, midway, above] {buf\_sin$[0\!:\!5]$}
+    node[bus, midway, below] {$/6$};
+
+% --- S1 -> S3: bypass theta ---
+\coordinate (thetaStart) at ($(S1.east) + (0, -1.8)$);
+\coordinate (thetaEnd) at ($(S3.west) + (0, -1.8)$);
+\coordinate (thetaBelow) at ($(S2.south) + (0, -1.2)$);
+
+\draw[data arrow] (thetaStart) -- ++(0, -1.5) -- (thetaBelow);
+\node[register, fill=white] (ThetaReg) at (thetaBelow) {$\theta_{cap}$};
+\node[signal, below=0.2cm of ThetaReg] {\scriptsize theta\_captured};
+\draw[data arrow] (ThetaReg.east) -| (thetaEnd);
+\node[signal] at ($(thetaStart) + (0.3, -0.8)$) {\scriptsize $\theta$};
+
+% --- S2 -> S3: vetor de features ---
+\draw[data arrow] ($(S2.east) + (0, 0.0)$) -- ($(S3.west) + (0, 0.0)$)
+    node[signal, midway, above] {x\_flat$[0\!:\!15]$}
+    node[bus, midway, below] {$/16$};
+
+% --- Sa\'{i}das ---
+\node[io_node] (Iout) at ($(S3.east) + (3.0, 0.8)$) {$i_{out}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Qout) at ($(S3.east) + (3.0, -0.5)$) {$q_{out}$ \normalfont\footnotesize [data\_t]};
+\node[io_node] (Vout) at ($(S3.east) + (3.0, -1.5)$) {output\_valid};
+
+\draw[data arrow] ($(S3.east) + (0, 0.8)$) -- (Iout);
+\draw[data arrow] ($(S3.east) + (0, -0.5)$) -- (Qout);
+\draw[ctrl arrow] ($(S3.east) + (0, -1.5)$) -- (Vout);
+
+% --- Anota\c{c}\~{a}o ---
+\node[annotation] at ($(S2.south) + (0, -3.0)$) {%
+    {\footnotesize Formato: Q16.16 (32 bits com sinal, 16 bits fracion\'{a}rios) \quad $M\!=\!5$, $N_{\text{filtros}}\!=\!16$, $K\!=\!4$}
+};
+
+\end{tikzpicture}%
+}
+\caption{Arquitetura geral do sistema -- tr\^{e}s est\'{a}gios de processamento sequencial. A fase $\theta$ realiza \textit{bypass} do Est\'{a}gio~2 atrav\'{e}s de um registrador de captura.}
+\label{fig:sistema_completo}
+\end{figure}
+
+
+% =======================================================================
+\section{Est\'{a}gio 1: Processamento de Entrada}
+% =======================================================================
+
+O Est\'{a}gio~1 (\texttt{Top\_NeuralNet\_S1}) \'{e} respons\'{a}vel por converter o sinal IQ de entrada em uma representa\c{c}\~{a}o adequada para as camadas subsequentes da rede neural. A Figura~\ref{fig:estagio1} apresenta seu diagrama de blocos.
+
+O fluxo de processamento \'{e}:
+\begin{enumerate}
+    \item O \texttt{Input\_Processing\_Block} recebe as componentes $i_{in}$ e $q_{in}$ e, utilizando o algoritmo CORDIC, converte-as em coordenadas polares: envelope $A(n)$ e fase $\theta(n)$.
+    \item A fase normalizada $\Delta\theta$ alimenta duas LUTs trigonom\'{e}tricas que calculam $\cos(\Delta\theta)$ e $\sin(\Delta\theta)$ em 4 ciclos de pipeline.
+    \item Um bloco de atraso de alinhamento (4 ciclos) compensa a lat\^{e}ncia das LUTs para o envelope e a fase.
+    \item Tr\^{e}s registradores de deslocamento (\textit{Shift Registers}) mant\^{e}m o hist\'{o}rico de $M+1 = 6$ amostras para cada canal.
+\end{enumerate}
+
+% -----------------------------------------------------------------------
+% Diagrama do Est\'{a}gio 1 (corrigido e em portugu\^{e}s)
+% -----------------------------------------------------------------------
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 1.8cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% --- Bloco de Processamento de Entrada ---
+\node[block, minimum width=4.0cm, minimum height=4.0cm, text width=3.5cm] (IPB) at (0, 0) {%
+    \textbf{Input}\\
+    \textbf{Processing}\\
+    \textbf{Block}\\[3pt]
+    {\footnotesize CORDIC + Phase}\\
+    {\footnotesize Unwrap}\\
+    {\footnotesize (40 ciclos)}
+};
+
+% --- Entradas ---
+\node[io_node] (Iin) at (-4.5, 1.0) {$i_{in}$};
+\node[io_node] (Qin) at (-4.5, -0.5) {$q_{in}$};
+\node[io_node] (Vin) at (-4.5, -2.0) {input\_valid};
+
+\draw[data arrow] (Iin) -- ($(IPB.west) + (0, 1.0)$);
+\draw[data arrow] (Qin) -- ($(IPB.west) + (0, -0.2)$);
+\draw[ctrl arrow] (Vin) -- ($(IPB.west) + (0, -1.4)$);
+
+% --- Sa\'{i}das do IPB ---
+\coordinate (envOut) at ($(IPB.east) + (0, 1.2)$);
+\coordinate (thetaNormOut) at ($(IPB.east) + (0, 0.0)$);
+\coordinate (phaseWOut) at ($(IPB.east) + (0, -1.2)$);
+\coordinate (enRawOut) at ($(IPB.south) + (0.5, 0)$);
+
+% --- LUTs trigonom\'{e}tricas ---
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_C) at (5.5, 1.5) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (cosseno)}\\
+    {\footnotesize $\cos(\Delta\theta)$}
+};
+
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_S) at (5.5, -1.5) {%
+    \textbf{LUT\_Trig}\\
+    {\footnotesize (seno)}\\
+    {\footnotesize $\sin(\Delta\theta)$}
+};
+
+% theta_norm bifurca para ambas LUTs
+\draw[data arrow] (thetaNormOut) -- ++(1.5, 0) coordinate (thetaFork);
+\node[dot] at (thetaFork) {};
+\draw[data arrow] (thetaFork) |- (LUT_C.west)
+    node[signal, pos=0.3, above] {\scriptsize $\theta_{norm}$};
+\draw[data arrow] (thetaFork) |- (LUT_S.west);
+
+% --- Atraso de Alinhamento ---
+\node[small block, minimum width=2.8cm, minimum height=1.8cm, text width=2.4cm] (Delay) at (5.5, 4.5) {%
+    \textbf{Atraso de}\\
+    \textbf{Alinhamento}\\
+    {\scriptsize 4 ciclos (LUT)}
+};
+
+% envelope_s -> Atraso
+\draw[data arrow] (envOut) -- ++(1.5, 0) |- ($(Delay.west) + (0, 0.3)$)
+    node[signal, pos=0.2, above] {\scriptsize envelope\_s};
+
+% phase_wrapped -> Atraso
+\draw[data arrow] (phaseWOut) -- ++(0.8, 0) |- ($(Delay.west) + (0, -0.3)$)
+    node[signal, pos=0.15, below] {\scriptsize phase\_wrapped};
+
+% --- Atraso do Enable ---
+\node[small block, minimum width=2.8cm, minimum height=0.8cm, text width=2.4cm] (EnDelay) at (5.5, -4.0) {%
+    \textbf{Atraso Enable}\\
+    {\scriptsize 4 ciclos}
+};
+\draw[ctrl arrow] (enRawOut) |- (EnDelay.west)
+    node[signal, pos=0.3, below] {\scriptsize en\_raw};
+
+% --- Registradores de Deslocamento ---
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_E) at (11.5, 4.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (envelope, $M\!=\!5$)}
+};
+
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_C) at (11.5, 1.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (cosseno, $M\!=\!5$)}
+};
+
+\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_S) at (11.5, -1.5) {%
+    \textbf{Shift\_Reg}\\
+    {\footnotesize (seno, $M\!=\!5$)}
+};
+
+% Atraso -> Shift_Reg (envelope)
+\draw[data arrow] (Delay.east) -- ++(0.5, 0) |- (SR_E.west)
+    node[signal, pos=0.4, above] {\scriptsize env\_aligned};
+
+% LUT -> Shift_Reg
+\draw[data arrow] (LUT_C.east) -- (SR_C.west)
+    node[signal, midway, above] {\scriptsize cos\_dp};
+\draw[data arrow] (LUT_S.east) -- (SR_S.west)
+    node[signal, midway, above] {\scriptsize sin\_dp};
+
+% Distribui\c{c}\~{a}o do enable
+\coordinate (enAligned) at ($(EnDelay.east) + (1.5, 0)$);
+\draw[ctrl arrow] (EnDelay.east) -- (enAligned);
+\node[dot] at (enAligned) {};
+\draw[ctrl arrow] (enAligned) |- ($(SR_E.south) + (-0.5, 0)$)
+    node[signal, pos=0.1, right] {\scriptsize wr\_en};
+\draw[ctrl arrow] (enAligned) |- ($(SR_C.south) + (-0.5, 0)$);
+\draw[ctrl arrow] (enAligned) |- ($(SR_S.south) + (-0.5, 0)$);
+
+% --- Sa\'{i}das (direita) ---
+\node[io_node, right=1.5cm of SR_E] (OutE) {buf\_env$[0\!:\!5]$};
+\node[io_node, right=1.5cm of SR_C] (OutC) {buf\_cos$[0\!:\!5]$};
+\node[io_node, right=1.5cm of SR_S] (OutS) {buf\_sin$[0\!:\!5]$};
+
+\draw[data arrow] (SR_E.east) -- (OutE) node[bus, midway, below] {$/6$};
+\draw[data arrow] (SR_C.east) -- (OutC) node[bus, midway, below] {$/6$};
+\draw[data arrow] (SR_S.east) -- (OutS) node[bus, midway, below] {$/6$};
+
+% --- theta_unwrapped sa\'{i}da (CORRIGIDO: posicionado acima do SR_E) ---
+\node[io_node] (OutTheta) at ($(SR_E.east) + (1.5, 1.5)$) {theta\_unwrapped\_out};
+\draw[data arrow] ($(Delay.east) + (0.5, -0.3)$) -- ++(1.0, 0) |- (OutTheta)
+    node[signal, pos=0.3, right] {\scriptsize $\theta_{aligned}$};
+
+% --- stage_valid ---
+\node[io_node] (OutValid) at ($(enAligned) + (4.5, 0)$) {stage\_valid};
+\draw[ctrl arrow] (enAligned) -- ++(0.5, 0) |- (OutValid);
+
+\end{tikzpicture}%
+}
+\caption{Diagrama de blocos do Est\'{a}gio 1 (\texttt{Top\_NeuralNet\_S1}): convers\~{a}o IQ$\,\rightarrow\,$polar, decomposi\c{c}\~{a}o trigonom\'{e}trica e buffers deslizantes. A lat\^{e}ncia das LUTs (4 ciclos) \'{e} compensada pelo bloco de atraso de alinhamento.}
+\label{fig:estagio1}
+\end{figure}
+
+
+% =======================================================================
+\section{Input Processing Block}
+\label{sec:input_processing}
+% =======================================================================
+
+O \texttt{Input\_Processing\_Block} \'{e} o primeiro bloco a ser implementado e validado. Ele \'{e} respons\'{a}vel por:
+
+\begin{itemize}
+    \item \textbf{Convers\~{a}o retangular para polar} usando o algoritmo CORDIC (\textit{Coordinate Rotation Digital Computer}), com 40 ciclos de lat\^{e}ncia.
+    \item \textbf{Corre\c{c}\~{a}o de ganho CORDIC}: a magnitude produzida pelo CORDIC possui ganho intr\'{i}nseco $K \approx 1{,}1644$. O bloco multiplica pelo inverso $K^{-1} \approx 0{,}8588$ e extrai os bits $[47\!:\!16]$ do produto de 64 bits.
+    \item \textbf{Escala de fase}: a sa\'{i}da de fase do CORDIC est\'{a} em formato de alta resolu\c{c}\~{a}o e \'{e} convertida para Q16.16 atrav\'{e}s de \textit{shift right} de 13 bits.
+    \item \textbf{L\'{o}gica de desembrulhamento de fase} (\textit{phase unwrapping}): detecta saltos de $2\pi$ e mant\'{e}m continuidade da fase acumulada $\theta_{unwrapped}(n)$.
+\end{itemize}
+
+
+\subsection{Interface do Bloco}
+
+\begin{table}[H]
+\centering
+\caption{Portas do \texttt{Input\_Processing\_Block}.}
+\label{tab:ipb_ports}
+\small
+\begin{tabular}{llll}
+\hline
+\textbf{Porta} & \textbf{Dir.} & \textbf{Tipo} & \textbf{Descri\c{c}\~{a}o} \\
+\hline
+\texttt{clk}                & in  & std\_logic & Rel\'{o}gio do sistema \\
+\texttt{rst}                & in  & std\_logic & Reset s\'{i}ncrono \\
+\texttt{i\_in}              & in  & data\_t    & Componente I (parte real) \\
+\texttt{q\_in}              & in  & data\_t    & Componente Q (parte imagin\'{a}ria) \\
+\texttt{input\_valid}       & in  & std\_logic & Indica amostra v\'{a}lida \\
+\hline
+\texttt{envelope\_out}      & out & data\_t    & Magnitude $A(n)$ corrigida \\
+\texttt{theta\_unwrapped\_out} & out & data\_t & Fase acumulada (sem saltos) \\
+\texttt{theta\_norm\_out}   & out & data\_t    & $\Delta\theta(n)$ normalizado $[-\pi, +\pi]$ \\
+\texttt{phase\_wrapped\_out}& out & data\_t    & Fase direta $\theta_{raw}(n)$ \\
+\texttt{buffers\_enable}    & out & std\_logic & Pulso de habilita\c{c}\~{a}o ap\'{o}s lat\^{e}ncia CORDIC \\
+\hline
+\end{tabular}
+\end{table}
+
+
+\subsection{C\'{o}digo VHDL}
+
+O c\'{o}digo completo do \texttt{Input\_Processing\_Block} \'{e} apresentado a seguir:
+
+\begin{lstlisting}[style=vhdlstyle, caption={C\'{o}digo VHDL do \texttt{Input\_Processing\_Block} (\texttt{input\_processing.vhd}).}, label={lst:ipb}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Input_Processing_Block is
+    Port (
+        clk                : in  std_logic;
+        rst                : in  std_logic;
+        i_in               : in  data_t;
+        q_in               : in  data_t;
+        input_valid        : in  std_logic;
+        envelope_out       : out data_t;
+        theta_unwrapped_out: out data_t;
+        theta_norm_out     : out data_t;
+        phase_wrapped_out  : out data_t;
+        buffers_enable     : out std_logic
+    );
+end Input_Processing_Block;
+
+architecture Behavioral of Input_Processing_Block is
+
+    component cordic_rect_to_polar
+    port (
+        clk : in std_logic;
+        x_in : in std_logic_vector(31 downto 0);
+        y_in : in std_logic_vector(31 downto 0);
+        x_out : out std_logic_vector(31 downto 0);
+        phase_out : out std_logic_vector(31 downto 0)
+    );
+    end component;
+
+    constant PI_FIXED : data_t := to_signed(205887, 32);
+    constant TWO_PI   : data_t := to_signed(411774, 32);
+    constant CORDIC_INV_GAIN : signed(31 downto 0) := to_signed(56281, 32);
+    constant CORDIC_LATENCY : integer := 40;
+
+    signal cordic_x_slv, cordic_y_slv : std_logic_vector(31 downto 0);
+    signal cordic_mag_slv, cordic_pha_slv : std_logic_vector(31 downto 0);
+    signal envelope_raw, envelope_s, phase_raw : data_t;
+    signal phase_high_res : signed(31 downto 0);
+    signal env_mult_long : signed(63 downto 0);
+    signal valid_sr : std_logic_vector(CORDIC_LATENCY downto 0)
+        := (others => '0');
+    signal buffers_enable_int : std_logic := '0';
+    signal last_phase_wrapped, last_phase_unwrapped : data_t
+        := (others => '0');
+    signal theta_unwrapped_reg, theta_norm_reg : data_t
+        := (others => '0');
+
+begin
+
+    cordic_x_slv <= std_logic_vector(i_in);
+    cordic_y_slv <= std_logic_vector(q_in);
+
+    CORDIC_INST : cordic_rect_to_polar
+    port map (
+        clk => clk, x_in => cordic_x_slv, y_in => cordic_y_slv,
+        x_out => cordic_mag_slv, phase_out => cordic_pha_slv
+    );
+
+    -- Correcao de ganho do envelope
+    envelope_raw <= signed(cordic_mag_slv);
+    env_mult_long <= envelope_raw * CORDIC_INV_GAIN;
+    envelope_s <= env_mult_long(47 downto 16);
+
+    -- Escala de fase
+    phase_high_res <= signed(cordic_pha_slv);
+    phase_raw <= resize(shift_right(phase_high_res, 13), 32);
+
+    -- Linha de atraso para valid
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then valid_sr <= (others => '0');
+            else valid_sr <= valid_sr(CORDIC_LATENCY-1 downto 0)
+                & input_valid; end if;
+        end if;
+    end process;
+
+    buffers_enable_int <= valid_sr(CORDIC_LATENCY);
+    buffers_enable     <= buffers_enable_int;
+
+    -- Logica de fase (unwrap)
+    process(clk)
+        variable diff : data_t;
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                last_phase_wrapped <= (others => '0');
+                last_phase_unwrapped <= (others => '0');
+                theta_unwrapped_reg <= (others => '0');
+                theta_norm_reg <= (others => '0');
+                envelope_out <= (others => '0');
+                phase_wrapped_out <= (others => '0');
+            elsif buffers_enable_int = '1' then
+                diff := phase_raw - last_phase_wrapped;
+                if diff > PI_FIXED then
+                    diff := diff - TWO_PI;
+                elsif diff < -PI_FIXED then
+                    diff := diff + TWO_PI;
+                end if;
+
+                theta_unwrapped_reg <= last_phase_unwrapped + diff;
+                last_phase_wrapped <= phase_raw;
+                last_phase_unwrapped <= last_phase_unwrapped + diff;
+                theta_norm_out <= diff;
+                envelope_out   <= envelope_s;
+                phase_wrapped_out <= phase_raw;
+            end if;
+        end if;
+    end process;
+
+    theta_unwrapped_out <= theta_unwrapped_reg;
+
+end Behavioral;
+\end{lstlisting}
+
+
+\subsection{Explica\c{c}\~{a}o do C\'{o}digo}
+
+\subsubsection{Constantes}
+
+\begin{itemize}
+    \item \texttt{PI\_FIXED} = 205887 $\approx \pi \times 2^{16}$: Valor de $\pi$ em formato Q16.16.
+    \item \texttt{TWO\_PI} = 411774 $\approx 2\pi \times 2^{16}$: Usado na l\'{o}gica de \textit{wrap}.
+    \item \texttt{CORDIC\_INV\_GAIN} = 56281 $\approx K^{-1} \times 2^{16} = 0{,}8588 \times 65536$: Fator de corre\c{c}\~{a}o de ganho.
+    \item \texttt{CORDIC\_LATENCY} = 40: N\'{u}mero de est\'{a}gios do pipeline CORDIC.
+\end{itemize}
+
+\subsubsection{Convers\~{a}o CORDIC}
+
+O IP Core \texttt{cordic\_rect\_to\_polar} recebe as componentes $i_{in}$ e $q_{in}$ e produz:
+\begin{itemize}
+    \item \texttt{x\_out}: magnitude com ganho $K$ do CORDIC.
+    \item \texttt{phase\_out}: fase em alta resolu\c{c}\~{a}o.
+\end{itemize}
+
+\subsubsection{Corre\c{c}\~{a}o de Ganho}
+
+A magnitude \'{e} corrigida multiplicando por $K^{-1}$:
+\begin{equation}
+    \texttt{envelope\_s} = \left(\texttt{envelope\_raw} \times K^{-1}\right)[47\!:\!16]
+\end{equation}
+O produto de 64 bits \'{e} truncado para 32 bits extraindo os bits $[47\!:\!16]$, o que equivale a uma divis\~{a}o por $2^{16}$ (remo\c{c}\~{a}o da parte fracion\'{a}ria extra).
+
+\subsubsection{Escala de Fase}
+
+A sa\'{i}da de fase do CORDIC est\'{a} em um formato de alta resolu\c{c}\~{a}o e precisa ser escalonada:
+\begin{equation}
+    \texttt{phase\_raw} = \texttt{phase\_high\_res} \gg 13
+\end{equation}
+
+\subsubsection{Linha de Atraso para Valid}
+
+Um registrador de deslocamento de 41 bits propaga o sinal \texttt{input\_valid} com exatamente 40 ciclos de atraso, sincronizando-o com a sa\'{i}da do CORDIC.
+
+\subsubsection{Desembrulhamento de Fase}
+
+A l\'{o}gica de \textit{phase unwrapping} garante continuidade da fase:
+\begin{align}
+    \Delta\theta(n) &= \theta_{raw}(n) - \theta_{raw}(n-1), \text{ ajustado para } [-\pi, +\pi] \label{eq:diff}\\
+    \theta_{unwrapped}(n) &= \theta_{unwrapped}(n-1) + \Delta\theta(n) \label{eq:unwrap}
+\end{align}
+
+Se $\Delta\theta > \pi$, subtrai-se $2\pi$; se $\Delta\theta < -\pi$, soma-se $2\pi$. Isso evita descontinuidades quando a fase cruza $\pm\pi$.
+
+
+% =======================================================================
+\section{Testbench}
+\label{sec:testbench}
+% =======================================================================
+
+O testbench \texttt{Input\_Processing\_Block\_tb} valida o bloco atrav\'{e}s de tr\^{e}s casos de teste:
+
+\begin{enumerate}
+    \item \textbf{Teste 1 -- Ganho CORDIC e Lat\^{e}ncia}: Envia $i_{in} = 1{,}0$, $q_{in} = 0{,}0$. Verifica se o envelope \'{e} $\approx 65536$ (ou seja, $1{,}0$ em Q16.16) e a fase $\approx 0$.
+    \item \textbf{Teste 2 -- Fase $\pi$}: Envia $i_{in} = -1{,}0$, $q_{in} = 0{,}0$. Verifica se $\theta \approx 205887$ ($\pi$ em Q16.16).
+    \item \textbf{Teste 3 -- Desembrulhamento de Fase}: Envia $i_{in} = -1{,}0$, $q_{in} = -0{,}1$. A fase passa ligeiramente al\'{e}m de $-\pi$, e a l\'{o}gica de \textit{unwrap} deve manter continuidade, resultando em $\theta_{unwrapped} > 210000$.
+\end{enumerate}
+
+\subsection{C\'{o}digo do Testbench}
+
+\begin{lstlisting}[style=vhdlstyle, caption={Testbench do \texttt{Input\_Processing\_Block} (\texttt{input\_processing\_tb.vhd}).}, label={lst:tb}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Input_Processing_Block_tb is
+end Input_Processing_Block_tb;
+
+architecture Behavioral of Input_Processing_Block_tb is
+
+    component Input_Processing_Block
+    Port (
+        clk                : in  std_logic;
+        rst                : in  std_logic;
+        i_in               : in  data_t;
+        q_in               : in  data_t;
+        input_valid        : in  std_logic;
+        envelope_out       : out data_t;
+        theta_unwrapped_out: out data_t;
+        theta_norm_out     : out data_t;
+        buffers_enable     : out std_logic
+    );
+    end component;
+
+    signal clk : std_logic := '0';
+    signal rst : std_logic := '0';
+    signal i_in : data_t := (others => '0');
+    signal q_in : data_t := (others => '0');
+    signal input_valid : std_logic := '0';
+
+    signal envelope_out : data_t;
+    signal theta_unwrapped_out : data_t;
+    signal theta_norm_out : data_t;
+    signal buffers_enable : std_logic;
+
+    constant clk_period : time := 10 ns;
+
+    -- Constantes Q16.16
+    constant VAL_ONE : data_t := to_signed(65536, 32);
+    constant VAL_NEG_ONE : data_t := to_signed(-65536, 32);
+    constant VAL_HALF : data_t := to_signed(32768, 32);
+    constant PI_VAL : integer := 205887;
+
+begin
+
+    uut: Input_Processing_Block PORT MAP (
+        clk => clk, rst => rst,
+        i_in => i_in, q_in => q_in,
+        input_valid => input_valid,
+        envelope_out => envelope_out,
+        theta_unwrapped_out => theta_unwrapped_out,
+        theta_norm_out => theta_norm_out,
+        buffers_enable => buffers_enable
+    );
+
+    clk_process: process
+    begin
+        clk <= '0'; wait for clk_period/2;
+        clk <= '1'; wait for clk_period/2;
+    end process;
+
+    stim_proc: process
+        variable env_int : integer;
+        variable theta_int : integer;
+    begin
+        -- Reset
+        rst <= '1';
+        wait for 100 ns;
+        rst <= '0';
+        wait for clk_period*5;
+
+        report "--- TESTE 1: Ganho CORDIC e Latencia ---";
+        i_in <= VAL_ONE;
+        q_in <= (others => '0');
+        input_valid <= '1';
+        wait for clk_period;
+        input_valid <= '0';
+
+        wait until buffers_enable = '1';
+        wait for clk_period * 2;
+
+        env_int := to_integer(envelope_out);
+        theta_int := to_integer(theta_unwrapped_out);
+
+        report "Case 1 Output -> Env: "
+            & integer'image(env_int)
+            & " Theta: " & integer'image(theta_int);
+
+        if abs(env_int - 65536) < 100 then
+            report "PASS: Envelope Gain Correct";
+        else
+            report "FAIL: Envelope Gain Incorrect"
+                severity error;
+        end if;
+
+        assert abs(theta_int) < 100
+            report "FAIL: Phase 0 Incorrect"
+            severity error;
+
+        -- TESTE 2: Fase PI
+        report "--- TESTE 2: Fase PI ---";
+        wait for clk_period * 10;
+
+        i_in <= VAL_NEG_ONE;
+        q_in <= (others => '0');
+        input_valid <= '1';
+        wait for clk_period;
+        input_valid <= '0';
+
+        wait until buffers_enable = '1';
+        wait for clk_period * 2;
+
+        theta_int := to_integer(theta_unwrapped_out);
+        report "Case 2 Output -> Theta: "
+            & integer'image(theta_int);
+
+        if abs(theta_int - PI_VAL) < 1000 then
+            report "PASS: Phase PI Correct";
+        else
+            report "FAIL: Phase PI Incorrect"
+                severity error;
+        end if;
+
+        -- TESTE 3: Fase Wrap
+        report "--- TESTE 3: Fase Wrap ---";
+        wait for clk_period * 10;
+
+        i_in <= VAL_NEG_ONE;
+        q_in <= to_signed(-6553, 32);
+        input_valid <= '1';
+        wait for clk_period;
+        input_valid <= '0';
+
+        wait until buffers_enable = '1';
+        wait for clk_period * 2;
+
+        theta_int := to_integer(theta_unwrapped_out);
+
+        report "Case 3 Output -> Theta Unwrapped: "
+            & integer'image(theta_int);
+
+        if theta_int > 210000 then
+             report "PASS: Phase Unwrap Logic";
+        else
+             report "FAIL: Phase Wrap failed"
+                 severity error;
+        end if;
+
+        report "--- FIM DO TESTE ---";
+        wait;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Resultados de Simula\c{c}\~{a}o}
+\label{sec:resultados}
+% =======================================================================
+
+A simula\c{c}\~{a}o foi realizada utilizando o ISim (Xilinx ISE Design Suite). Todos os tr\^{e}s testes passaram com sucesso.
+
+\subsection{Formas de Onda}
+
+% NOTA: Substituir pelo caminho real da imagem de simulacao do ISim
+% Para capturar: no ISim, File -> Export -> Export as Image (PNG)
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.9\textwidth}{\centering\vspace{3cm}
+    {\sffamily\large\color{black!50} [Inserir captura de tela do ISim aqui]}\\[5pt]
+    {\sffamily\small\color{black!50} File $\rightarrow$ Export $\rightarrow$ Export as Image (PNG)}\\[5pt]
+    {\sffamily\small\color{black!50} Salvar como: \texttt{isim\_input\_processing.png}}
+\vspace{3cm}}}
+\caption{Formas de onda da simula\c{c}\~{a}o do \texttt{Input\_Processing\_Block} no ISim.}
+\label{fig:waveform}
+\end{figure}
+
+% Quando a imagem estiver disponivel, descomentar as linhas abaixo:
+% \begin{figure}[H]
+% \centering
+% \includegraphics[width=\textwidth]{isim_input_processing.png}
+% \caption{Formas de onda da simulacao do \texttt{Input\_Processing\_Block} no ISim.}
+% \label{fig:waveform}
+% \end{figure}
+
+
+\subsection{Log do Simulador}
+
+O log completo do ISim confirma que todos os testes foram aprovados:
+
+\begin{lstlisting}[style=logstyle, caption={Log de sa\'{i}da do ISim para o testbench do \texttt{Input\_Processing\_Block}.}, label={lst:log}]
+Finished circuit initialization process.
+at 150 ns: Note: --- TESTE 1: Ganho CORDIC e Latencia ---
+    (/input_processing_block_tb/).
+at 575 ns: Note: Case 1 Output -> Env: 65536 Theta: 0
+    (/input_processing_block_tb/).
+at 575 ns: Note: PASS: Envelope Gain Correct
+    (/input_processing_block_tb/).
+at 575 ns: Note: --- TESTE 2: Fase PI ---
+    (/input_processing_block_tb/).
+
+# run 10.00us
+at 1095 ns: Note: Case 2 Output -> Theta: 205886
+    (/input_processing_block_tb/).
+at 1095 ns: Note: PASS: Phase PI Correct
+    (/input_processing_block_tb/).
+at 1095 ns: Note: --- TESTE 3: Fase Wrap ---
+    (/input_processing_block_tb/).
+at 1615 ns: Note: Case 3 Output -> Theta Unwrapped: 212417
+    (/input_processing_block_tb/).
+at 1615 ns: Note: PASS: Phase Unwrap Logic
+    (/input_processing_block_tb/).
+at 1615 ns: Note: --- FIM DO TESTE ---
+    (/input_processing_block_tb/)
+\end{lstlisting}
+
+
+\subsection{An\'{a}lise dos Resultados}
+
+\begin{table}[H]
+\centering
+\caption{Resultados quantitativos dos testes de simula\c{c}\~{a}o.}
+\label{tab:resultados}
+\small
+\begin{tabular}{llccc}
+\hline
+\textbf{Teste} & \textbf{Grandeza} & \textbf{Esperado} & \textbf{Obtido} & \textbf{Erro} \\
+\hline
+1 -- Ganho CORDIC & Envelope ($A$) & 65536 (1,0) & 65536 & 0 \\
+1 -- Lat\^{e}ncia   & $\theta$ & 0 & 0 & 0 \\
+2 -- Fase $\pi$      & $\theta_{unwrapped}$ & 205887 ($\pi$) & 205886 & $-1$ LSB \\
+3 -- Phase Unwrap    & $\theta_{unwrapped}$ & $>$210000 & 212417 & -- \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Teste 1}: O envelope retornou exatamente $65536 = 1{,}0$ em Q16.16, confirmando que a corre\c{c}\~{a}o de ganho $K^{-1}$ funciona corretamente. A lat\^{e}ncia do CORDIC (40 ciclos) tamb\'{e}m foi verificada pelo atraso entre \texttt{input\_valid} e \texttt{buffers\_enable}.
+
+    \item \textbf{Teste 2}: A fase para o vetor $(-1, 0)$ retornou $205886$, com erro de apenas 1~LSB em rela\c{c}\~{a}o ao valor te\'{o}rico $\pi \approx 205887$. Esse erro \'{e} aceit\'{a}vel para a precis\~{a}o Q16.16.
+
+    \item \textbf{Teste 3}: Ap\'{o}s enviar o vetor $(-1, -0{,}1)$, cuja fase real \'{e} ligeiramente al\'{e}m de $-\pi$ (no terceiro quadrante), a l\'{o}gica de \textit{unwrap} detectou corretamente o salto de $2\pi$ e acumulou o valor $\theta_{unwrapped} = 212417$, mantendo continuidade.
+\end{itemize}
+
+
+% =======================================================================
+\section{Conclus\~{a}o e Pr\'{o}ximos Passos}
+% =======================================================================
+
+O \texttt{Input\_Processing\_Block} foi implementado e validado com sucesso. Os tr\^{e}s testes confirmaram:
+
+\begin{itemize}
+    \item Corre\c{c}\~{a}o do ganho CORDIC com precis\~{a}o exata.
+    \item C\'{a}lculo correto de fase com erro $\leq 1$~LSB.
+    \item Funcionamento da l\'{o}gica de desembrulhamento de fase.
+    \item Lat\^{e}ncia correta de 40 ciclos propagada pelo \texttt{valid\_sr}.
+\end{itemize}
+
+\noindent\textbf{Pr\'{o}ximos passos:}
+\begin{enumerate}
+    \item Implementar e validar as LUTs trigonom\'{e}tricas (\texttt{LUT\_Trig}) com pipeline de 4 est\'{a}gios.
+    \item Implementar os registradores de deslocamento (\texttt{Shift\_Register}).
+    \item Integrar os blocos no wrapper do Est\'{a}gio~1 (\texttt{Top\_NeuralNet\_S1}).
+    \item Validar o Est\'{a}gio~1 completo antes de prosseguir para a camada convolucional.
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,119 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily\large
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    op_node/.style={
+        circle, draw=black, very thick, minimum size=0.9cm, fill=white
+    },
+    io_node/.style={font=\sffamily\bfseries},
+    mem/.style={
+        rectangle, draw, thick,
+        minimum width=2.0cm, minimum height=0.8cm,
+        font=\sffamily\small, align=center
+    },
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% Input ports
+% ---------------------------------------------------------
+\node[io_node] (BufIn) at (-6, 2.5) {buffer\_in$[0\!:\!5]$};
+\node[io_node] (WIn)   at (-6, 0.0) {weights\_in$[0\!:\!3]$};
+\node[io_node] (BIn)   at (-6, -2.5) {bias\_in};
+
+% ---------------------------------------------------------
+% Bias load
+% ---------------------------------------------------------
+\node[mem] (BiasLoad) at (-2, -2.5) {Load Bias};
+\draw[data arrow] (BIn) -- (BiasLoad);
+
+% ---------------------------------------------------------
+% Multiplier: buffer[w+k] x weights[k]
+% ---------------------------------------------------------
+\node[op_node] (Mult) at (0, 1.25) {$\times$};
+
+% MUX/selector for buffer[w+k]
+\node[small block] (BufSel) at (-2.5, 2.5) {$x[w\!+\!k]$};
+\draw[data arrow] (BufIn) -- (BufSel);
+\draw[data arrow] (BufSel) -- (Mult.150);
+
+% MUX/selector for weights[k]
+\node[small block] (WSel) at (-2.5, 0.0) {$w[k]$};
+\draw[data arrow] (WIn) -- (WSel);
+\draw[data arrow] (WSel) -- (Mult.210);
+
+% ---------------------------------------------------------
+% Truncate + Round
+% ---------------------------------------------------------
+\node[small block, right=1.5cm of Mult] (Trunc) {%
+    $[47\!:\!16]$\\
+    + round
+};
+\draw[data arrow] (Mult) -- (Trunc);
+
+% ---------------------------------------------------------
+% Accumulator (adder with feedback)
+% ---------------------------------------------------------
+\node[op_node, right=1.5cm of Trunc] (Add) {$+$};
+\draw[data arrow] (Trunc) -- (Add);
+
+% Feedback loop
+\node[mem, below=1.0cm of Add] (Acc) {acc};
+\draw[data arrow] (Add) -- ++(1.2, 0) |- (Acc.east);
+\draw[data arrow] (Acc.west) -| ($(Add.south) + (-0.5, 0)$) -- (Add.south);
+
+% Bias init path
+\draw[data arrow] (BiasLoad) -| ($(Add.south) + (-0.5, -0.5)$);
+\node[const, below=0.3cm of BiasLoad] {\scriptsize init acc $\leftarrow$ bias};
+
+% ---------------------------------------------------------
+% Output RAM
+% ---------------------------------------------------------
+\node[mem, right=2.0cm of Add] (OutRAM) {out\_ram$[w]$};
+\draw[data arrow] (Add) -- (OutRAM) node[signal, midway, above] {\scriptsize save};
+
+% ---------------------------------------------------------
+% Output port
+% ---------------------------------------------------------
+\node[io_node, right=1.5cm of OutRAM] (ConvOut) {conv\_out$[0\!:\!2]$};
+\draw[data arrow] (OutRAM) -- (ConvOut);
+
+% ---------------------------------------------------------
+% Loop annotation
+% ---------------------------------------------------------
+\node[annotation, below=2.5cm of Mult] {%
+    \textbf{Serialized:} For each output position $w = 0, 1, 2$:\\
+    \quad $\text{acc} \leftarrow \text{bias}$\\
+    \quad For $k = 0$ to $K\!-\!1$: \quad $\text{acc} \leftarrow \text{acc} + \text{round}(x[w\!+\!k] \times w[k])$\\
+    \quad $\text{out\_ram}[w] \leftarrow \text{acc}$
+};
+
+% ---------------------------------------------------------
+% FSM loop arrow
+% ---------------------------------------------------------
+\draw[ctrl arrow, ->] ($(OutRAM.south) + (0, -0.3)$)
+    .. controls +(-2, -1.0) and +(-4, -1.0) ..
+    ($(BufSel.south) + (0, -0.3)$)
+    node[signal, midway] {\scriptsize next $w$};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{equation*}
+    \text{conv\_out}[w] = b + \sum_{k=0}^{K-1} \text{buffer}[w+k] \cdot \text{weight}[k], \quad w = 0, 1, 2
+\end{equation*}
+
+\noindent\textit{Generics: \textsf{KERNEL\_SIZE}$= 4$, \textsf{BUFFER\_SIZE}$= 6$. Output size: $6 - 4 + 1 = 3$ positions. Fixed-point truncation with round-to-nearest.}
+
+\caption{Conv1D\_Block -- serialized 1D convolution with MAC and bias.}
+\label{fig:conv1d_block}
+\end{figure}

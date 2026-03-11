@@ -1,0 +1,126 @@
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=1.2cm and 2.0cm,
+    >=Stealth, thick, font=\sffamily
+]
+
+% ---------------------------------------------------------
+% Styles
+% ---------------------------------------------------------
+\tikzset{
+    op_node/.style={
+        circle, draw=black, very thick, minimum size=0.9cm, fill=white,
+        font=\sffamily\large
+    },
+    io_node/.style={font=\sffamily\bfseries},
+    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
+}
+
+% ---------------------------------------------------------
+% CORDIC block (large)
+% ---------------------------------------------------------
+\node[block, minimum width=4.0cm, minimum height=3.5cm, text width=3.5cm] (CORDIC) at (0, 0) {%
+    \textbf{CORDIC}\\[2pt]
+    \textsf{\footnotesize cordic\_rect\_to\_polar}\\[4pt]
+    {\footnotesize Rect $\rightarrow$ Polar}\\
+    {\footnotesize Latency: 40 cyc}
+};
+
+% ---------------------------------------------------------
+% Inputs
+% ---------------------------------------------------------
+\node[io_node, left=2.5cm of CORDIC] (Iin) at (-5, 1.0) {$i_{in}$};
+\node[io_node] (Qin) at (-5, -1.0) {$q_{in}$};
+\node[io_node] (Vin) at (-5, -3.0) {input\_valid};
+
+\draw[data arrow] (Iin) -- ($(CORDIC.west) + (0, 0.6)$)
+    node[signal, midway, above] {\scriptsize x\_in};
+\draw[data arrow] (Qin) -- ($(CORDIC.west) + (0, -0.6)$)
+    node[signal, midway, above] {\scriptsize y\_in};
+
+% ---------------------------------------------------------
+% Magnitude path (top)
+% ---------------------------------------------------------
+% CORDIC x_out -> multiply by K^{-1}
+\node[op_node, right=2.0cm of CORDIC] (MultK) at ($(CORDIC.east) + (2.0, 1.0)$) {$\times$};
+\draw[data arrow] ($(CORDIC.east) + (0, 1.0)$) -- (MultK)
+    node[signal, midway, above] {\scriptsize mag};
+
+% K^{-1} constant from top
+\node[const, above=0.8cm of MultK] (Kinv) {$K^{-1} = 0.8588$};
+\draw[data arrow] (Kinv) -- (MultK);
+
+% Truncate
+\node[small block, right=1.5cm of MultK] (TruncE) {$[47\!:\!16]$};
+\draw[data arrow] (MultK) -- (TruncE);
+
+% envelope_out
+\node[io_node, right=1.5cm of TruncE] (EnvOut) {envelope\_out};
+\draw[data arrow] (TruncE) -- (EnvOut);
+
+% ---------------------------------------------------------
+% Phase path (bottom)
+% ---------------------------------------------------------
+% CORDIC phase_out -> shift right 13
+\node[small block] (ShiftR) at ($(CORDIC.east) + (2.0, -1.0)$) {$\gg 13$};
+\draw[data arrow] ($(CORDIC.east) + (0, -1.0)$) -- (ShiftR)
+    node[signal, midway, above] {\scriptsize phase\_out};
+
+% phase_raw fork point
+\coordinate (PhaseRawFork) at ($(ShiftR.east) + (1.0, 0)$);
+\node[dot] at (PhaseRawFork) {};
+\draw[data arrow] (ShiftR) -- (PhaseRawFork);
+
+% Direct path to phase_wrapped_out
+\node[io_node] (PhaseWOut) at ($(PhaseRawFork) + (0, -2.0)$) {phase\_wrapped\_out};
+\draw[data arrow] (PhaseRawFork) -- (PhaseWOut);
+
+% Path to Phase Unwrap block
+\node[block, minimum width=3.5cm, minimum height=2.5cm, text width=3.0cm] (Unwrap) at ($(PhaseRawFork) + (3.5, 0)$) {%
+    \textbf{Phase Unwrap}\\[2pt]
+    {\footnotesize $\Delta\theta = \theta(n) - \theta(n\!-\!1)$}\\
+    {\footnotesize wrap to $[-\pi, +\pi]$}\\
+    {\footnotesize accumulate}
+};
+\draw[data arrow] (PhaseRawFork) -- (Unwrap.west)
+    node[signal, midway, above] {\scriptsize phase\_raw};
+
+% Outputs from Phase Unwrap
+\node[io_node, right=1.5cm of Unwrap] (ThetaU) at ($(Unwrap.east) + (2.0, 0.5)$) {theta\_unwrapped\_out};
+\node[io_node] (ThetaN) at ($(Unwrap.east) + (2.0, -0.5)$) {theta\_norm\_out};
+
+\draw[data arrow] ($(Unwrap.east) + (0, 0.5)$) -- (ThetaU);
+\draw[data arrow] ($(Unwrap.east) + (0, -0.5)$) -- (ThetaN);
+
+% ---------------------------------------------------------
+% Valid delay line
+% ---------------------------------------------------------
+\node[small block, minimum width=3.0cm] (ValDelay) at (0, -4.5) {%
+    Valid Delay\\
+    {\scriptsize 40-cycle shift register}
+};
+\draw[data arrow] (Vin) -- ++(1.5, 0) |- (ValDelay.west);
+
+\node[io_node, right=2.5cm of ValDelay] (BufEn) {buffers\_enable};
+\draw[data arrow] (ValDelay) -- (BufEn);
+
+% ---------------------------------------------------------
+% Entity border
+% ---------------------------------------------------------
+\node[entity border, fit=(Iin)(Vin)(EnvOut)(ThetaU)(ThetaN)(PhaseWOut)(ValDelay)(BufEn)(Kinv), inner sep=15pt] {};
+
+\end{tikzpicture}%
+}
+
+\vspace{3mm}
+\begin{align*}
+    \text{envelope} &= (\text{mag}_{\text{CORDIC}} \times K^{-1})\,[47\!:\!16] \\
+    \theta_{\text{norm}}(n) &= \theta_{\text{raw}}(n) - \theta_{\text{raw}}(n\!-\!1), \quad \text{wrapped to } [-\pi, +\pi] \\
+    \theta_{\text{unwrapped}}(n) &= \theta_{\text{unwrapped}}(n\!-\!1) + \theta_{\text{norm}}(n)
+\end{align*}
+
+\caption{Input\_Processing\_Block -- CORDIC-based rectangular-to-polar conversion with phase unwrapping.}
+\label{fig:input_processing}
+\end{figure}
