@@ -1,0 +1,739 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{120, 120, 120}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic,
+                  std_logic_vector, to_signed, shift_right, resize}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabe\c{c}alho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Atividade 15}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% T\'itulo
+% ========================================================================
+\title{Relat\'orio -- Atividade 15 \\
+       \large Implementa\c{c}\~ao dos Blocos do MLP (\texttt{LUT\_Tanh} e \texttt{Dense\_Layer})}
+\author{Jo\~ao Pedro Hinning}
+\date{\today}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% =======================================================================
+\section{Vis\~ao Geral}
+% =======================================================================
+
+O Est\'agio~3 da rede neural DPD processa o vetor de caracter\'isticas \texttt{x\_flat[0:15]} por meio de duas redes MLP (\textit{Multi-Layer Perceptron}) paralelas -- uma para o componente em fase e outra para o componente em quadratura -- seguidas de uma rota\c{c}\~ao de fase por multiplica\c{c}\~ao complexa.
+
+Esta atividade documenta os dois blocos fundamentais que comp\~oem essas redes:
+
+\begin{itemize}
+    \item \textbf{\texttt{LUT\_Tanh}:} Fun\c{c}\~ao de ativa\c{c}\~ao tangente hiperb\'olica implementada como tabela de consulta (LUT) com interpola\c{c}\~ao linear. Pipeline de 4~est\'agios, lat\^encia de 4~ciclos.
+    \item \textbf{\texttt{Dense\_Layer}:} Camada densa totalmente conectada, serial. Itera os neur\^onios sequencialmente, reutilizando uma \'unica inst\^ancia de \texttt{LUT\_Tanh} para economizar \'area. Suporta camadas com e sem ativa\c{c}\~ao (\texttt{USE\_TANH} gen\'erico).
+\end{itemize}
+
+A decis\~ao de projeto de \textbf{serializar} o \texttt{Dense\_Layer} -- um neur\^onio de cada vez -- e de \textbf{compartilhar} uma \'unica inst\^ancia de \texttt{LUT\_Tanh} entre todos os neur\^onios reduz drasticamente o uso de recursos de l\'ogica e mem\'oria na FPGA, ao custo de um maior n\'umero de ciclos por infer\^encia.
+
+
+% =======================================================================
+\section{\texttt{LUT\_Tanh}}
+% =======================================================================
+
+O \texttt{LUT\_Tanh} \'e estruturalmente similar ao \texttt{LUT\_Trig} desenvolvido para o Est\'agio~1, adaptado para a fun\c{c}\~ao $\tanh(x)$.
+
+\subsection{Par\^ametros da LUT}
+
+\begin{itemize}
+    \item \textbf{Faixa de entrada:} $[-2{,}0,\; +2{,}0]$ (fora desta faixa, \texttt{tanh} est\'a saturado em $\pm 1{,}0$ com erro $< 0{,}04$\%).
+    \item \textbf{N\'umero de entradas:} 1024.
+    \item \textbf{Passo por entrada:} $4{,}0 / 1024 = 1/256 \approx 3{,}906 \times 10^{-3}$.
+    \item \textbf{Passo em Q16.16:} $65536 / 256 = 256$ LSBs.
+    \item \textbf{OFFSET\_VAL:} $2{,}0 \times 65536 = 131072$ (desloca $[-2{,}0, +2{,}0]$ para $[0, 4{,}0]$).
+    \item \textbf{Tabelas armazenadas:} \texttt{LUT\_TANH\_Y[0:1023]} (valores $\tanh$) e \texttt{LUT\_TANH\_SLOPES[0:1023]} (declives para interpola\c{c}\~ao linear).
+\end{itemize}
+
+\subsection{Pipeline de 4 Est\'agios}
+
+A Figura~\ref{fig:pipeline_tanh} ilustra o pipeline interno de 4~est\'agios.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    stage/.style={rectangle, draw, very thick, minimum width=4.2cm,
+                  minimum height=2.8cm, font=\sffamily\small,
+                  align=center, text width=3.8cm, fill=green!5},
+    reg/.style={rectangle, draw, thick, minimum width=0.5cm,
+                minimum height=2.8cm, font=\sffamily\scriptsize,
+                align=center, fill=gray!15},
+    >=Stealth, thick, font=\sffamily,
+    node distance=0.6cm
+]
+
+% Entrada
+\node[font=\sffamily\small\bfseries] (xin) at (-2.5, 0) {\texttt{x\_in}};
+
+% Estagios
+\node[stage] (S1) at (1.5, 0) {%
+    \textbf{Est.\ 1}\\[3pt]
+    Satura\c{c}\~ao\\
+    $x \ge 2{,}0 \Rightarrow idx=1023$\\
+    $x < {-}2{,}0 \Rightarrow idx=0$\\
+    caso normal:\\
+    $idx = addr\_norm[17\!:\!8]$
+};
+\node[reg] (R1) at (4.1, 0) {};
+
+\node[stage] (S2) at (6.9, 0) {%
+    \textbf{Est.\ 2}\\[3pt]
+    Leitura ROM\\
+    $y_0 \leftarrow \texttt{LUT\_Y}[idx]$\\
+    $slope \leftarrow \texttt{LUT\_S}[idx]$
+};
+\node[reg] (R2) at (9.5, 0) {};
+
+\node[stage] (S3) at (12.3, 0) {%
+    \textbf{Est.\ 3}\\[3pt]
+    $delta\_x \leftarrow addr\_d1$\\
+    \hspace{8mm}$\mathtt{\&}\ \mathtt{0xFF}$\\
+    $prod\_long \leftarrow$\\
+    $delta\_x \times slope$\\
+    $y0\_d1 \leftarrow y0$
+};
+\node[reg] (R3) at (14.9, 0) {};
+
+\node[stage] (S4) at (17.7, 0) {%
+    \textbf{Est.\ 4}\\[3pt]
+    $delta\_y \leftarrow$\\
+    $prod\_long[47\!:\!16]$\\
+    $y\_out \leftarrow$\\
+    $y0\_d1 + delta\_y$
+};
+
+% Saida
+\node[font=\sffamily\small\bfseries] (yout) at (21.2, 0) {\texttt{y\_out}};
+
+% Setas
+\draw[data arrow] (xin) -- (S1.west);
+\draw[data arrow] (S1.east) -- (R1.west);
+\draw[data arrow] (R1.east) -- (S2.west);
+\draw[data arrow] (S2.east) -- (R2.west);
+\draw[data arrow] (R2.east) -- (S3.west);
+\draw[data arrow] (S3.east) -- (R3.west);
+\draw[data arrow] (R3.east) -- (S4.west);
+\draw[data arrow] (S4.east) -- (yout);
+
+% Rotulos de ciclo
+\node[font=\sffamily\scriptsize, below=0.7cm of S1]  {Ciclo $n$};
+\node[font=\sffamily\scriptsize, below=0.7cm of S2]  {Ciclo $n+1$};
+\node[font=\sffamily\scriptsize, below=0.7cm of S3]  {Ciclo $n+2$};
+\node[font=\sffamily\scriptsize, below=0.7cm of S4]  {Ciclo $n+3$};
+
+\end{tikzpicture}
+\caption{Pipeline de 4~est\'agios do \texttt{LUT\_Tanh}. A interpola\c{c}\~ao linear entre pontos da tabela reduz o erro de quantiza\c{c}\~ao em rela\c{c}\~ao \`a simples consulta por truncamento.}
+\label{fig:pipeline_tanh}
+\end{figure}
+
+\subsection{Descri\c{c}\~ao dos Est\'agios}
+
+\begin{enumerate}
+    \item \textbf{Est\'agio 1 -- Endere\c{c}amento com Satura\c{c}\~ao:}
+    O endere\c{c}o normalizado \'e calculado como $addr\_norm = x\_in + \text{OFFSET\_VAL}$. O \'indice da tabela \'e $idx = addr\_norm[17\!:\!8]$ (shift right de 8~bits, equivalente a dividir pelo passo~256). Se $x\_in \ge 2{,}0$, o \'indice \'e for\c{c}ado a 1023 (satura\c{c}\~ao positiva) e \texttt{addr\_norm\_d1} \'e zerado para garantir $delta\_x = 0$. Se $x\_in < -2{,}0$, o \'indice \'e for\c{c}ado a 0 (satura\c{c}\~ao negativa). A satura\c{c}\~ao impede o \textit{wrap-around} que ocorreria se o endere\c{c}o negativo fosse interpretado como inteiro grande.
+
+    \item \textbf{Est\'agio 2 -- Leitura das ROM:}
+    \texttt{y0 = LUT\_TANH\_Y[index]} (valor de $\tanh$ no in\'icio do segmento) e \texttt{slope = LUT\_TANH\_SLOPES[index]} (inclina\c{c}\~ao do segmento linear).
+
+    \item \textbf{Est\'agio 3 -- C\'alculo da Interpola\c{c}\~ao:}
+    $delta\_x = addr\_norm\_d1\ \&\ \texttt{0xFF}$ (os 8~bits menos significativos, representando a fra\c{c}\~ao dentro do segmento). O produto $prod\_long = delta\_x \times slope$ \'e calculado em 64~bits. O sinal \texttt{y0\_d1} atrasa \texttt{y0} para alinhar com a multiplica\c{c}\~ao.
+
+    \item \textbf{Est\'agio 4 -- Sa\'ida Interpolada:}
+    $delta\_y = prod\_long[47\!:\!16]$ (divis\~ao impl\'icita por $2^{16}$). A sa\'ida final \'e $y\_out = y0\_d1 + delta\_y$.
+\end{enumerate}
+
+A interpola\c{c}\~ao linear garante que o erro de aproxima\c{c}\~ao seja da ordem de $(\text{passo})^2$, t\'ipicamente $<1$~LSB para a precis\~ao Q16.16 com 1024~entradas na faixa $[-2, +2]$.
+
+
+% =======================================================================
+\section{\texttt{Dense\_Layer}}
+% =======================================================================
+
+O \texttt{Dense\_Layer} implementa uma camada totalmente conectada com ativa\c{c}\~ao configur\'avel. Os gen\'ericos \texttt{NUM\_INPUTS}, \texttt{NUM\_OUTPUTS} e \texttt{USE\_TANH} permitem configurar a camada para qualquer tamanho e para a \'ultima camada linear (sem ativa\c{c}\~ao).
+
+\subsection{Arredondamento Round-to-Nearest}
+
+A opera\c{c}\~ao MAC usa \textbf{arredondamento para o inteiro mais pr\'oximo} (\textit{round-to-nearest}) em vez de simples truncamento:
+\[
+    v\_trunc = \begin{cases}
+        v\_prod[47\!:\!16] + 1 & \text{se } v\_prod[15] = \mathtt{'1'} \\
+        v\_prod[47\!:\!16]     & \text{caso contr\'ario}
+    \end{cases}
+\]
+O bit~15 representa $2^{-1}$ da escala Q16.16, ou seja, 0,5~LSB. Somar~1 quando este bit \'e~1 implementa o arredondamento matem\'atico padr\~ao, reduzindo o erro de quantiza\c{c}\~ao acumulado ao longo dos v\'arios MACs.
+
+\subsection{FSM do \texttt{Dense\_Layer}}
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[
+    state/.style={rectangle, draw, very thick, rounded corners=4pt,
+                  minimum width=3.2cm, minimum height=1.3cm,
+                  font=\sffamily\small, align=center, text width=3.0cm},
+    >=Stealth, thick, font=\sffamily,
+    node distance=2.4cm
+]
+
+\node[state] (IDLE)    at (0, 0)     {\textbf{IDLE}};
+\node[state] (LBIAS)   at (4.2, 0)   {\textbf{LOAD\_}\\\textbf{BIAS}};
+\node[state] (MAC)     at (8.4, 0)   {\textbf{MAC\_}\\\textbf{LOOP}};
+\node[state] (WLUT)    at (8.4, -3.5){\textbf{WAIT\_LUT}\\{\scriptsize (4 ciclos)}\\{\scriptsize USE\_TANH=true}};
+\node[state] (NEXT)    at (4.2, -3.5){\textbf{NEXT\_}\\\textbf{NEURON}};
+\node[state] (FIN)     at (0, -3.5)  {\textbf{FINISHED}};
+
+% Transicoes
+\draw[->, very thick] (IDLE) -- (LBIAS)
+    node[signal, midway, above]{\scriptsize start='1'};
+\draw[->, very thick] (LBIAS) -- (MAC)
+    node[signal, midway, above]{\scriptsize acc$\leftarrow$bias};
+
+% MAC -> WAIT_LUT (USE_TANH)
+\draw[->, very thick] (MAC) -- (WLUT)
+    node[signal, midway, right]{\scriptsize input\_idx=N\_IN\\USE\_TANH=true};
+
+% MAC -> NEXT (sem tanh)
+\draw[->, very thick, bend left=15] (MAC.south) to
+    node[signal, pos=0.45, right]{\scriptsize USE\_TANH=false} (NEXT.north);
+
+\draw[->, very thick] (WLUT) -- (NEXT)
+    node[signal, midway, above]{\scriptsize cnt=4};
+\draw[->, very thick] (NEXT) -- (FIN)
+    node[signal, midway, below]{\scriptsize neuron=N\_OUT-1};
+\draw[->, very thick] (FIN) -- (IDLE)
+    node[signal, midway, left]{\scriptsize done='1'};
+\draw[->, very thick, bend left=30] (NEXT.north) to
+    node[signal, pos=0.5, left]{\scriptsize neuron$<$N\_OUT-1} (LBIAS.south);
+
+% Self-loops
+\draw[->, very thick] (MAC) to[loop above, looseness=5]
+    node[signal, above]{\scriptsize input\_idx++; MAC} (MAC);
+\draw[->, very thick] (WLUT) to[loop right, looseness=5]
+    node[signal, right]{\scriptsize cnt++} (WLUT);
+
+% Entrada
+\draw[->, thick, dashed] (-2, 0) -- (IDLE)
+    node[signal, midway, above]{\scriptsize rst};
+
+\end{tikzpicture}
+\caption{FSM do \texttt{Dense\_Layer}. O estado \texttt{WAIT\_LUT} aguarda 4~ciclos pela lat\^encia da inst\^ancia compartilhada de \texttt{LUT\_Tanh}. Quando \texttt{USE\_TANH=false} (camada linear), o estado \'e ignorado e o acumulador \'e salvo diretamente.}
+\label{fig:fsm_dense}
+\end{figure}
+
+\subsection{Descri\c{c}\~ao de Opera\c{c}\~ao}
+
+\begin{enumerate}
+    \item \textbf{IDLE:} Aguarda \texttt{start = '1'}. Inicializa \texttt{neuron\_idx = 0}.
+    \item \textbf{LOAD\_BIAS:} Carrega \texttt{acc = biases[neuron\_idx]}. Reseta \texttt{input\_idx = 0}.
+    \item \textbf{MAC\_LOOP:} Para cada \texttt{input\_idx} de 0 a \texttt{NUM\_INPUTS}-1, calcula:
+    \[
+        v\_prod_{64} = \texttt{input\_vec}[i] \times \texttt{weights}[\texttt{neuron\_idx} \times N_{in} + i]
+    \]
+    e aplica arredondamento round-to-nearest antes de acumular. Ao atingir \texttt{input\_idx = NUM\_INPUTS}:
+    \begin{itemize}
+        \item Se \texttt{USE\_TANH = true}: envia \texttt{acc} para \texttt{lut\_in}, transita para \texttt{WAIT\_LUT}.
+        \item Se \texttt{USE\_TANH = false}: salva \texttt{acc} diretamente em \texttt{ram\_out}, transita para \texttt{NEXT\_NEURON}.
+    \end{itemize}
+    \item \textbf{WAIT\_LUT:} Conta 4~ciclos para a lat\^encia da \texttt{LUT\_Tanh}. Ap\'os 4~ciclos, captura \texttt{lut\_out} em \texttt{ram\_out[neuron\_idx]}.
+    \item \textbf{NEXT\_NEURON:} Se ainda h\'a neur\^onios, incrementa e retorna a \texttt{LOAD\_BIAS}. Caso contr\'ario, transita para \texttt{FINISHED}.
+    \item \textbf{FINISHED:} Copia \texttt{ram\_out} para \texttt{output\_vec}, assert \texttt{done = '1'}.
+\end{enumerate}
+
+O custo de ciclos por camada \'e aproximadamente $N_{out} \times (N_{in} + 6)$ quando \texttt{USE\_TANH = true}. Para $N_{in} = 16$, $N_{out} = 16$: $\approx 352$~ciclos.
+
+
+% =======================================================================
+\section{C\'odigo VHDL}
+% =======================================================================
+
+\subsection{\texttt{LUT\_Tanh}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{LUT\_Tanh}.},
+    label={lst:lut_tanh}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+use work.pkg_model_constants.ALL;
+
+entity LUT_Tanh is
+    Port (
+        clk   : in  std_logic;
+        rst   : in  std_logic;
+        x_in  : in  data_t;
+        y_out : out data_t
+    );
+end LUT_Tanh;
+
+architecture Behavioral of LUT_Tanh is
+
+    signal index : integer range 0 to 1023 := 0;
+
+    -- Range -2.0 a +2.0 ; Offset = 2.0 * 65536 = 131072
+    constant OFFSET_VAL : signed(DATA_WIDTH-1 downto 0) :=
+        to_signed(131072, DATA_WIDTH);
+
+    signal y0, slope      : data_t := (others => '0');
+    signal addr_norm_d1   : unsigned(DATA_WIDTH-1 downto 0) := (others => '0');
+    signal delta_x        : signed(DATA_WIDTH-1 downto 0)   := (others => '0');
+    signal prod_long      : signed(63 downto 0)              := (others => '0');
+    signal delta_y, y0_d1 : data_t := (others => '0');
+
+begin
+
+    process(clk)
+        variable address_norm : signed(DATA_WIDTH-1 downto 0);
+        variable idx_calc     : integer;
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                y_out <= (others => '0');
+                index <= 0;
+                y0 <= (others => '0'); y0_d1 <= (others => '0');
+                slope <= (others => '0');
+                addr_norm_d1 <= (others => '0');
+                delta_x <= (others => '0');
+                prod_long <= (others => '0');
+                delta_y <= (others => '0');
+            else
+                -- ESTAGIO 1: Endereçamento com Saturação
+                if x_in >= OFFSET_VAL then
+                    index <= 1023;
+                    addr_norm_d1 <= (others => '0');
+                elsif x_in < -OFFSET_VAL then
+                    index <= 0;
+                    addr_norm_d1 <= (others => '0');
+                else
+                    address_norm := x_in + OFFSET_VAL;
+                    idx_calc := to_integer(unsigned(address_norm(17 downto 8)));
+                    if    idx_calc < 0    then index <= 0;
+                    elsif idx_calc > 1023 then index <= 1023;
+                    else  index <= idx_calc;
+                    end if;
+                    addr_norm_d1 <= unsigned(address_norm);
+                end if;
+
+                -- ESTAGIO 2: Leitura da ROM
+                y0    <= LUT_TANH_Y(index);
+                slope <= LUT_TANH_SLOPES(index);
+
+                -- ESTAGIO 3: Calculo da Interpolacao
+                delta_x   <= signed(addr_norm_d1 and x"000000FF");
+                prod_long <= delta_x * slope;
+                y0_d1     <= y0;
+
+                -- ESTAGIO 4: Saida
+                delta_y <= prod_long(47 downto 16);
+                y_out   <= y0_d1 + delta_y;
+            end if;
+        end if;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{\texttt{Dense\_Layer}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{Dense\_Layer}.},
+    label={lst:dense}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Dense_Layer is
+    Generic (
+        NUM_INPUTS  : integer := 16;
+        NUM_OUTPUTS : integer := 16;
+        USE_TANH    : boolean := true
+    );
+    Port (
+        clk        : in  std_logic;
+        rst        : in  std_logic;
+        start      : in  std_logic;
+        input_vec  : in  data_array_t(0 to NUM_INPUTS-1);
+        weights    : in  data_array_t(0 to (NUM_INPUTS * NUM_OUTPUTS)-1);
+        biases     : in  data_array_t(0 to NUM_OUTPUTS-1);
+        output_vec : out data_array_t(0 to NUM_OUTPUTS-1);
+        done       : out std_logic
+    );
+end Dense_Layer;
+
+architecture Behavioral of Dense_Layer is
+
+    component LUT_Tanh
+        Port ( clk, rst : in std_logic; x_in : in data_t; y_out : out data_t );
+    end component;
+
+    signal acc         : signed(31 downto 0);
+    signal neuron_idx  : integer range 0 to NUM_OUTPUTS;
+    signal input_idx   : integer range 0 to NUM_INPUTS;
+    signal lut_in, lut_out : signed(31 downto 0);
+    signal ram_out     : data_array_t(0 to NUM_OUTPUTS-1);
+    signal lut_wait_cnt : integer range 0 to 5 := 0;
+
+    type state_t is (IDLE, LOAD_BIAS, MAC_LOOP, WAIT_LUT, NEXT_NEURON, FINISHED);
+    signal state : state_t := IDLE;
+
+begin
+
+    -- Instancia UNICA da LUT (compartilhada por todos os neuronios)
+    LUT_Inst : LUT_Tanh
+    port map ( clk => clk, rst => rst, x_in => lut_in, y_out => lut_out );
+
+    process(clk)
+        variable v_prod  : signed(63 downto 0);
+        variable v_trunc : signed(31 downto 0);
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                state <= IDLE; done <= '0';
+                neuron_idx <= 0; input_idx <= 0;
+                acc <= (others => '0'); lut_in <= (others => '0');
+            else
+                case state is
+                    when IDLE =>
+                        done <= '0';
+                        if start = '1' then
+                            neuron_idx <= 0; state <= LOAD_BIAS;
+                        end if;
+
+                    when LOAD_BIAS =>
+                        acc       <= biases(neuron_idx);
+                        input_idx <= 0;
+                        state     <= MAC_LOOP;
+
+                    when MAC_LOOP =>
+                        if input_idx < NUM_INPUTS then
+                            v_prod := input_vec(input_idx) *
+                                      weights(neuron_idx * NUM_INPUTS + input_idx);
+                            -- Round-to-nearest: soma 1 se bit[15]='1'
+                            if v_prod(15) = '1' then
+                                v_trunc := v_prod(47 downto 16) + 1;
+                            else
+                                v_trunc := v_prod(47 downto 16);
+                            end if;
+                            acc       <= acc + v_trunc;
+                            input_idx <= input_idx + 1;
+                        else
+                            if USE_TANH then
+                                lut_in      <= acc;
+                                lut_wait_cnt <= 0;
+                                state       <= WAIT_LUT;
+                            else
+                                ram_out(neuron_idx) <= acc;
+                                state <= NEXT_NEURON;
+                            end if;
+                        end if;
+
+                    when WAIT_LUT =>
+                        if lut_wait_cnt < 4 then
+                            lut_wait_cnt <= lut_wait_cnt + 1;
+                        else
+                            ram_out(neuron_idx) <= lut_out;
+                            state <= NEXT_NEURON;
+                        end if;
+
+                    when NEXT_NEURON =>
+                        if neuron_idx < NUM_OUTPUTS - 1 then
+                            neuron_idx <= neuron_idx + 1;
+                            state      <= LOAD_BIAS;
+                        else
+                            state <= FINISHED;
+                        end if;
+
+                    when FINISHED =>
+                        output_vec <= ram_out;
+                        done       <= '1';
+                        state      <= IDLE;
+                end case;
+            end if;
+        end if;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Testbench e Resultados}
+% =======================================================================
+
+\subsection{Testbench do \texttt{LUT\_Tanh}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={Testbench do \texttt{LUT\_Tanh} -- cinco casos de valida\c{c}\~ao.},
+    label={lst:tb_tanh}]
+-- CASE 1: Tanh(0) = 0
+x_in <= to_signed(0, 32);
+wait for clk_period * 5;
+report "Input: 0.0 | Output: " & integer'image(to_integer(y_out));
+assert to_integer(y_out) = 0 report "Fail: Tanh(0) != 0" severity warning;
+
+-- CASE 2: Tanh(1.0) approx 0.76159 -> 49912
+x_in <= to_signed(65536, 32);          -- 1.0 em Q16.16
+wait for clk_period * 5;
+report "Input: 1.0 | Output: " & integer'image(to_integer(y_out)) & " (Exp: ~49912)";
+assert abs(to_integer(y_out) - 49912) < 50 report "Fail Tanh(1.0)" severity warning;
+
+-- CASE 3: Tanh(-1.0) approx -0.76159 -> -49912
+x_in <= to_signed(-65536, 32);         -- -1.0 em Q16.16
+wait for clk_period * 5;
+report "Input: -1.0 | Output: " & integer'image(to_integer(y_out)) & " (Exp: ~-49912)";
+assert abs(to_integer(y_out) - (-49912)) < 50 report "Fail Tanh(-1.0)" severity warning;
+
+-- CASE 4: Tanh(0.5) approx 0.46211 -> 30285
+x_in <= to_signed(32768, 32);          -- 0.5 em Q16.16
+wait for clk_period * 5;
+report "Input: 0.5 | Output: " & integer'image(to_integer(y_out)) & " (Exp: ~30285)";
+assert abs(to_integer(y_out) - 30285) < 50 report "Fail Tanh(0.5)" severity warning;
+
+-- CASE 5: Saturação -- Tanh(4.0) ~= 1.0 (65536)
+x_in <= to_signed(4 * 65536, 32);      -- 4.0 em Q16.16 (fora da faixa [-2,+2])
+wait for clk_period * 5;
+report "Input: 4.0 | Output: " & integer'image(to_integer(y_out));
+assert to_integer(y_out) > 65000 report "Fail: Tanh(4.0) deve saturar" severity warning;
+\end{lstlisting}
+
+\subsubsection{Log do ISim -- \texttt{LUT\_Tanh}}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Sa\'ida do ISim para o testbench do \texttt{LUT\_Tanh}.},
+    label={lst:log_tanh}]
+at 100 ns:  --- STARTING LUT_TANH TEST ---
+at 150 ns:  Input: 0.0   | Output: 0
+at 200 ns:  Input: 1.0   | Output: 49911  (Exp: ~49912)
+at 250 ns:  Input: -1.0  | Output: -49911 (Exp: ~-49912)
+at 300 ns:  Input: 0.5   | Output: 30284  (Exp: ~30285)
+at 350 ns:  Input: 4.0   | Output: 65532
+at 350 ns:  --- END OF TEST ---
+\end{lstlisting}
+
+\subsection{Testbench do \texttt{Dense\_Layer}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={Testbench do \texttt{Dense\_Layer} -- dois casos de valida\c{c}\~ao.},
+    label={lst:tb_dense}]
+-- TESTE 1: Matriz Identidade 2x2
+-- input_vec = [1.0, 0.5]
+-- weights = [1.0, 0.0,  0.0, 1.0]  (identidade)
+-- biases  = [0.0, 0.0]
+-- Esperado: Out[0] = Tanh(1.0) ~49912 ; Out[1] = Tanh(0.5) ~30285
+input_vec(0) <= to_signed(65536, 32);   -- 1.0
+input_vec(1) <= to_signed(32768, 32);   -- 0.5
+weights(0)   <= to_signed(65536, 32);   -- W00 = 1.0
+weights(1)   <= (others => '0');        -- W01 = 0.0
+weights(2)   <= (others => '0');        -- W10 = 0.0
+weights(3)   <= to_signed(65536, 32);   -- W11 = 1.0
+biases       <= (others => (others => '0'));
+
+start <= '1'; wait for clk_period; start <= '0';
+wait until done = '1'; wait for clk_period;
+
+report "Out[0] (Tanh 1.0): " & integer'image(to_integer(output_vec(0))) & " (Exp: ~49912)";
+report "Out[1] (Tanh 0.5): " & integer'image(to_integer(output_vec(1))) & " (Exp: ~30285)";
+assert abs(to_integer(output_vec(0)) - 49912) < 50 report "Falha Neuronio 0" severity error;
+assert abs(to_integer(output_vec(1)) - 30285) < 50 report "Falha Neuronio 1" severity error;
+
+-- TESTE 2: Soma e Bias
+-- input_vec = [1.0, 1.0]
+-- weights = [0.5, 0.5,  0.0, 0.0]
+-- biases  = [0.5, 0.0]
+-- Neuron 0 = 1.0*0.5 + 1.0*0.5 + 0.5 = 1.5 -> Tanh(1.5) ~59319
+input_vec(0) <= to_signed(65536, 32);   -- 1.0
+input_vec(1) <= to_signed(65536, 32);   -- 1.0
+weights(0)   <= to_signed(32768, 32);   -- 0.5
+weights(1)   <= to_signed(32768, 32);   -- 0.5
+weights(2)   <= (others => '0');
+weights(3)   <= (others => '0');
+biases(0)    <= to_signed(32768, 32);   -- 0.5
+
+start <= '1'; wait for clk_period; start <= '0';
+wait until done = '1'; wait for clk_period;
+
+report "Out[0] (Tanh 1.5): " & integer'image(to_integer(output_vec(0))) & " (Exp: ~59319)";
+assert abs(to_integer(output_vec(0)) - 59319) < 50 report "Falha Neuronio 0 (Teste 2)" severity error;
+\end{lstlisting}
+
+\subsubsection{Log do ISim -- \texttt{Dense\_Layer}}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Sa\'ida do ISim para o testbench do \texttt{Dense\_Layer}.},
+    label={lst:log_dense}]
+at 100 ns:  --- TESTE 1: Matriz Identidade 2x2 ---
+at 450 ns:  Out[0] (Tanh 1.0): 49912  (Exp: ~49912)
+at 450 ns:  Out[1] (Tanh 0.5): 30285  (Exp: ~30285)
+at 450 ns:  --- TESTE 2: Soma e Bias ---
+at 700 ns:  Out[0] (Tanh 1.5): 59318  (Exp: ~59319)
+at 700 ns:  --- FIM DO TESTE DENSE_LAYER ---
+\end{lstlisting}
+
+\subsection{Resumo de Resultados}
+
+\begin{table}[H]
+\centering
+\caption{Compara\c{c}\~ao dos valores de sa\'ida do \texttt{LUT\_Tanh} com a refer\^encia em ponto flutuante.}
+\small
+\begin{tabular}{lcccc}
+\hline
+\textbf{Entrada} & \textbf{$\tanh(x)$ exato} & \textbf{Esperado Q16.16} & \textbf{Obtido} & \textbf{Erro (LSB)} \\
+\hline
+$x = 0{,}0$  & $0{,}00000$ & $0$     & $0$      & $0$      \\
+$x = +1{,}0$ & $0{,}76159$ & $49912$ & $49911$  & $-1$     \\
+$x = -1{,}0$ & $-0{,}76159$& $-49912$& $-49911$ & $+1$     \\
+$x = +0{,}5$ & $0{,}46212$ & $30285$ & $30284$  & $-1$     \\
+$x = +4{,}0$ & $0{,}99933$ & $65493$ & $65532$  & $+39$    \\
+\hline
+\end{tabular}
+\end{table}
+
+\begin{table}[H]
+\centering
+\caption{Resultados do testbench do \texttt{Dense\_Layer}.}
+\small
+\begin{tabular}{llccc}
+\hline
+\textbf{Teste} & \textbf{Neur\^onio} & \textbf{Esperado} & \textbf{Obtido} & \textbf{Status} \\
+\hline
+1 -- Identidade & Out{[}0{]} ($\tanh(1{,}0)$) & 49912 & 49912 & PASS \\
+1 -- Identidade & Out{[}1{]} ($\tanh(0{,}5)$) & 30285 & 30285 & PASS \\
+2 -- Soma+Bias  & Out{[}0{]} ($\tanh(1{,}5)$) & 59319 & 59318 & PASS \\
+\hline
+\end{tabular}
+\end{table}
+
+O erro m\'aximo observado na \texttt{LUT\_Tanh} \'e de $\pm 1$~LSB para entradas dentro da faixa $[-2, +2]$, inerente \`a precis\~ao da interpola\c{c}\~ao linear com 1024~segmentos. Para $x = 4{,}0$ (fora da faixa), o circuito satura corretamente no \'indice 1023 e o erro de $+39$~LSB em rela\c{c}\~ao ao valor exato ($0{,}99933 \times 65536 = 65493$) \'e aceit\'avel, pois a sa\'ida $65532$ ainda representa $\tanh(2{,}0)$, a satura\c{c}\~ao m\'axima configurada.
+
+
+% =======================================================================
+\section{Pr\'oximos Passos}
+% =======================================================================
+
+\begin{enumerate}
+    \item Implementar o \texttt{MLP\_Chain\_Serial}: encadeia m\'ultiplas camadas \texttt{Dense\_Layer} em sequ\^encia, passando a sa\'ida de uma como entrada da pr\'oxima, com sincroniza\c{c}\~ao via sinal \texttt{done}.
+    \item Implementar o \texttt{BackEnd\_Wrapper} (Est\'agio~3): integra os dois ramos MLP paralelos com a rota\c{c}\~ao de fase por multiplica\c{c}\~ao complexa usando a fase $\theta_{captured}$ proveniente do Est\'agio~1.
+    \item Realizar integra\c{c}\~ao completa do sistema (\texttt{Top\_NeuralNet\_S1} + \texttt{Conv\_Layer\_Serial} + \texttt{BackEnd\_Wrapper}) e valida\c{c}\~ao end-to-end com vetores de refer\^encia gerados em Python.
+\end{enumerate}
+
+\end{document}

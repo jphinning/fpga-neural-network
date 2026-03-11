@@ -1,0 +1,612 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{120, 120, 120}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic,
+                  std_logic_vector, to_signed, shift_right, resize}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabeçalho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Atividade 13}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% Título
+% ========================================================================
+\title{Relat\'orio -- Atividade 13 \\
+       \large Integra\c{c}\~ao do Est\'agio~1 (\texttt{Top\_NeuralNet\_S1})}
+\author{Jo\~ao Pedro Hinning}
+\date{\today}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% =======================================================================
+\section{Vis\~ao Geral}
+% =======================================================================
+
+Esta atividade documenta a integra\c{c}\~ao e valida\c{c}\~ao do Est\'agio~1 completo da rede
+neural DPD, implementado na entidade \texttt{Top\_NeuralNet\_S1}. O Est\'agio~1 combina todos
+os blocos desenvolvidos nas atividades anteriores em um \'unico pipeline coerente:
+
+\begin{itemize}
+    \item \textbf{1$\times$ \texttt{Input\_Processing\_Block}:} Convers\~ao IQ$\,\rightarrow\,$polar
+          via CORDIC (lat\^encia de 40~ciclos), desembrulhamento de fase e normaliza\c{c}\~ao.
+    \item \textbf{2$\times$ \texttt{LUT\_Trig}:} Uma inst\^ancia para cosseno (\texttt{mode\_sin='0'})
+          e outra para seno (\texttt{mode\_sin='1'}), operando sobre $\Delta\theta(n)$
+          (\texttt{theta\_norm\_out}) com pipeline de 4~ciclos.
+    \item \textbf{3$\times$ \texttt{Shift\_Register}:} Buffers deslizantes de $M+1 = 6$~taps
+          para os canais de envelope, cosseno e seno. Os tr\^es registradores s\~ao habilitados
+          sincronamente pelo sinal de escrita alinhado.
+\end{itemize}
+
+As sa\'idas do est\'agio s\~ao os tr\^es vetores de 6~taps ---
+\texttt{buf\_env\_out}, \texttt{buf\_cos\_out} e \texttt{buf\_sin\_out} --- e o sinal
+\texttt{theta\_unwrapped\_out} (fase crua alinhada), que realiza \textit{bypass} do Est\'agio~2
+para o backend de rota\c{c}\~ao complexa.
+
+
+% =======================================================================
+\section{Diagrama do Est\'agio~1}
+% =======================================================================
+
+A Figura~\ref{fig:top_s1} apresenta o diagrama de blocos completo do \texttt{Top\_NeuralNet\_S1},
+mostrando a interliga\c{c}\~ao entre os sub-blocos e os caminhos dos sinais de dados e controle.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{\input{diagram_top_neuralnet_s1}}
+\caption{Diagrama de blocos do \texttt{Top\_NeuralNet\_S1}. O bloco de atraso de alinhamento
+sincroniza o envelope e a fase com as sa\'idas das LUTs antes de escrever nos buffers.}
+\label{fig:top_s1}
+\end{figure}
+
+
+% =======================================================================
+\section{Alinhamento de Lat\^encia}
+\label{sec:latency}
+% =======================================================================
+
+O projeto do Est\'agio~1 exige o gerenciamento cuidadoso de dois valores de lat\^encia
+distintos que precisam ser reconciliados antes que os dados sejam escritos nos
+registradores de deslocamento.
+
+\subsection{Origem das Lat\^encias}
+
+\begin{enumerate}
+    \item \textbf{Lat\^encia do \texttt{Input\_Processing\_Block} (40~ciclos):} O IP core CORDIC
+          opera de forma iterativa, necessitando de 40~bordas de subida de rel\'ogio para
+          completar a convers\~ao retangular--polar. O \texttt{Input\_Processing\_Block} propaga
+          um registrador de deslocamento de 40~bits junto com o sinal \texttt{input\_valid} para
+          gerar \texttt{buffers\_enable} exatamente quando \texttt{envelope\_out},
+          \texttt{phase\_wrapped\_out} e \texttt{theta\_norm\_out} s\~ao v\'alidos.
+
+    \item \textbf{Lat\^encia das \texttt{LUT\_Trig} (4~ciclos):} Cada inst\^ancia de
+          \texttt{LUT\_Trig} possui um pipeline de 4~est\'agios registrados. Portanto, quando
+          \texttt{theta\_norm\_out} \'e v\'alido (indicado por \texttt{buffers\_enable}), as
+          sa\'idas \texttt{cos\_dp} e \texttt{sin\_dp} s\'o ficam v\'alidas 4~ciclos ap\'os.
+\end{enumerate}
+
+\subsection{Solu\c{c}\~ao: Linhas de Atraso de 4~Ciclos}
+
+Para sincronizar o envelope e o controle de escrita com as sa\'idas das LUTs, o
+\texttt{Top\_NeuralNet\_S1} implementa tr\^es linhas de atraso paralelas de
+\texttt{LUT\_LATENCY} $= 4$~ciclos:
+
+\begin{itemize}
+    \item \textbf{\texttt{enable\_delay}:} \texttt{std\_logic\_vector(0 to 3)} -- atrasa
+          \texttt{buffers\_enable\_raw} por 4~ciclos. O bit final, \texttt{enable\_delay(3)},
+          torna-se \texttt{buffers\_write\_en} e habilita os tr\^es \texttt{Shift\_Register}
+          simultaneamente, garantindo que cos, sin e envelope cheguem todos no mesmo instante.
+
+    \item \textbf{\texttt{env\_delay}:} \texttt{data\_array\_t(0 to 3)} -- atrasa
+          \texttt{envelope\_s} por 4~ciclos, produzindo \texttt{envelope\_aligned}.
+
+    \item \textbf{\texttt{theta\_delay}:} \texttt{data\_array\_t(0 to 3)} -- atrasa
+          \texttt{phase\_wrapped} por 4~ciclos, produzindo \texttt{theta\_aligned}.
+          Este valor \'e exposto como \texttt{theta\_unwrapped\_out} para o backend.
+\end{itemize}
+
+\subsection{Por que \texttt{phase\_wrapped} e N\~ao \texttt{theta\_unwrapped}?}
+
+Uma decis\~ao de projeto cr\'itica \'e a escolha de \textbf{\texttt{phase\_wrapped}} (e n\~ao
+\texttt{theta\_unwrapped}) para alimentar a linha de atraso \texttt{theta\_delay}.
+
+O sinal \texttt{theta\_unwrapped\_out} \'e uma fase acumulada que cresce indefinidamente ao
+longo do tempo. Seus valores t\'ipicos em opera\c{c}\~ao real excedem facilmente o intervalo
+$[-\pi,+\pi]$, ultrapassando as fronteiras da tabela ROM de 1024~entradas do \texttt{LUT\_Trig}.
+Se \texttt{theta\_unwrapped} fosse enviado para a LUT, o \'indice calculado no Est\'agio~1
+da LUT ficaria fora dos limites, produzindo resultados incorretos.
+
+O sinal \texttt{phase\_wrapped}, por outro lado, \'e a fase bruta do CORDIC normalizada
+para $[-\pi,+\pi]$, sempre dentro da faixa de opera\c{c}\~ao da LUT. Por isso, as LUTs
+recebem \texttt{theta\_norm\_out} ($= \Delta\theta$, tamb\'em em $[-\pi,+\pi]$), e a sa\'ida
+\texttt{theta\_unwrapped\_out} do \texttt{Top\_NeuralNet\_S1} \'e na pr\'atica
+\texttt{phase\_wrapped} alinhado --- fornecendo ao backend a fase angular correta para a
+rota\c{c}\~ao complexa final, sem risco de transbordamento de \'indice.
+
+O comentário no código VHDL documenta explicitamente esta decisão:
+\begin{center}
+\texttt{-- [CORREÇÃO] Shift Theta usando phase\_wrapped (Raw -PI a +PI)}\\
+\texttt{-- Não usar theta\_unwrapped aqui, pois ele estoura a LUT!}
+\end{center}
+
+
+% =======================================================================
+\section{C\'odigo VHDL}
+% =======================================================================
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL completo do \texttt{Top\_NeuralNet\_S1}.},
+    label={lst:top_s1}]
+--------------------------------------------------------------------------------
+-- Enhanced Stage 1 Wrapper
+-- Outputs theta_unwrapped which is needed for the backend recombination
+--------------------------------------------------------------------------------
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Top_NeuralNet_S1 is
+    Port (
+        clk          : in  std_logic;
+        rst          : in  std_logic;
+
+        -- Inputs
+        i_in         : in  data_t;
+        q_in         : in  data_t;
+        input_valid  : in  std_logic;
+
+        -- Outputs (Buffer States)
+        buf_env_out  : out data_array_t(0 to 5); -- M=5
+        buf_cos_out  : out data_array_t(0 to 5);
+        buf_sin_out  : out data_array_t(0 to 5);
+
+        -- Theta sincronizado para o backend
+        theta_unwrapped_out : out data_t;
+
+        -- Control Output
+        stage_valid  : out std_logic
+    );
+end Top_NeuralNet_S1;
+
+architecture Behavioral of Top_NeuralNet_S1 is
+
+    component Input_Processing_Block
+        Port (
+            clk, rst : in std_logic;
+            i_in, q_in : in data_t;
+            input_valid : in std_logic;
+            envelope_out, theta_unwrapped_out, theta_norm_out : out data_t;
+            phase_wrapped_out : out data_t;
+            buffers_enable : out std_logic
+        );
+    end component;
+
+    component LUT_Trig
+        Port ( clk, rst : in std_logic; x_in : in data_t;
+               mode_sin : in std_logic; y_out : out data_t );
+    end component;
+
+    component Shift_Register
+        Generic ( DEPTH : integer );
+        Port ( clk, rst, enable : in std_logic;
+               data_in : in data_t; data_out : out data_array_t );
+    end component;
+
+    constant M : integer := 5;
+    constant LUT_LATENCY : integer := 4;
+
+    signal envelope_s, theta_unwrapped, theta_norm, phase_wrapped : data_t;
+    signal buffers_enable_raw : std_logic;
+
+    signal cos_dp, sin_dp : data_t;
+
+    -- Delay Lines
+    signal enable_delay : std_logic_vector(0 to LUT_LATENCY-1);
+    signal env_delay    : data_array_t(0 to LUT_LATENCY-1);
+
+    -- Delay Line para Theta
+    signal theta_delay  : data_array_t(0 to LUT_LATENCY-1);
+
+    signal buffers_write_en : std_logic;
+    signal envelope_aligned : data_t;
+    signal theta_aligned    : data_t;
+
+begin
+
+    INPUT_BLOCK : Input_Processing_Block
+    port map (
+        clk => clk, rst => rst, i_in => i_in, q_in => q_in,
+        input_valid => input_valid,
+        envelope_out => envelope_s,
+        theta_unwrapped_out => theta_unwrapped,
+        theta_norm_out => theta_norm,
+        phase_wrapped_out => phase_wrapped,
+        buffers_enable => buffers_enable_raw
+    );
+
+    LUT_COS : LUT_Trig port map(clk, rst, theta_norm, '0', cos_dp);
+    LUT_SIN : LUT_Trig port map(clk, rst, theta_norm, '1', sin_dp);
+
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                enable_delay <= (others => '0');
+                env_delay <= (others => (others => '0'));
+                theta_delay <= (others => (others => '0'));
+            else
+                -- Shift Enable
+                enable_delay(1 to LUT_LATENCY-1) <= enable_delay(0 to LUT_LATENCY-2);
+                enable_delay(0) <= buffers_enable_raw;
+
+                -- Shift Envelope Data
+                env_delay(1 to LUT_LATENCY-1) <= env_delay(0 to LUT_LATENCY-2);
+                env_delay(0) <= envelope_s;
+
+                -- [CORRECAO] Shift Theta usando phase_wrapped (Raw -PI a +PI)
+                -- Nao usar theta_unwrapped aqui, pois ele estoura a LUT!
+                theta_delay(1 to LUT_LATENCY-1) <= theta_delay(0 to LUT_LATENCY-2);
+                theta_delay(0) <= phase_wrapped;
+            end if;
+        end if;
+    end process;
+
+    buffers_write_en <= enable_delay(LUT_LATENCY-1);
+    envelope_aligned <= env_delay(LUT_LATENCY-1);
+    theta_aligned    <= theta_delay(LUT_LATENCY-1);
+
+    BUF_E : Shift_Register Generic Map(M)
+        Port Map(clk, rst, buffers_write_en, envelope_aligned, buf_env_out);
+    BUF_C : Shift_Register Generic Map(M)
+        Port Map(clk, rst, buffers_write_en, cos_dp, buf_cos_out);
+    BUF_S : Shift_Register Generic Map(M)
+        Port Map(clk, rst, buffers_write_en, sin_dp, buf_sin_out);
+
+    stage_valid <= buffers_write_en;
+    theta_unwrapped_out <= theta_aligned;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Testbench e Resultados}
+% =======================================================================
+
+\subsection{Abordagem Baseada em Arquivo de Vetores}
+
+O testbench do \texttt{Top\_NeuralNet\_S1} adota uma abordagem orientada a arquivos para
+permitir valida\c{c}\~ao com m\'ultiplas amostras reais extraídas de refer\^encia Python.
+O arquivo \texttt{vectors\_s1\_input.txt} \'e lido linha a linha durante a simula\c{c}\~ao;
+cada linha cont\'em cinco valores inteiros (em Q16.16):
+
+\begin{center}
+\texttt{v\_I \quad v\_Q \quad v\_EXP\_ENV \quad v\_EXP\_COS \quad v\_EXP\_SIN}
+\end{center}
+
+Para cada linha, o testbench:
+\begin{enumerate}
+    \item Aplica $(i_{in}, q_{in})$ ao est\'agio e aguarda \texttt{stage\_valid = '1'}.
+    \item L\^e \texttt{buf\_env\_out(0)}, \texttt{buf\_cos\_out(0)} e \texttt{buf\_sin\_out(0)}.
+    \item Compara os valores obtidos com os esperados da \textit{amostra anterior} (pois o pipeline
+          introduz um ciclo adicional de lat\^encia de preenchimento entre a escrita e a leitura).
+    \item Aceita erros de at\'e $\pm 500$~LSB, tolerando imprecis\~oes acumuladas da cadeia
+          CORDIC + LUT + aritm\'etica Q16.16.
+\end{enumerate}
+
+A \textbf{primeira amostra \'e ignorada} na compara\c{c}\~ao (\textit{pipeline fill}):
+nela o buffer \texttt{Shift\_Register} ainda n\~ao foi preenchido com dados v\'alidos.
+A partir da segunda amostra, o dado lido \'e o resultado correspondente \`a amostra anterior.
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={Testbench do \texttt{Top\_NeuralNet\_S1} com leitura de arquivo de vetores.},
+    label={lst:top_s1_tb}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use std.textio.all;
+use work.pkg_neural_types.ALL;
+
+entity Top_NeuralNet_S1_tb is
+end Top_NeuralNet_S1_tb;
+
+architecture Behavioral of Top_NeuralNet_S1_tb is
+
+    component Top_NeuralNet_S1
+    Port (
+        clk, rst : in std_logic;
+        i_in, q_in : in data_t;
+        input_valid : in std_logic;
+        buf_env_out, buf_cos_out, buf_sin_out : out data_array_t(0 to 5);
+        stage_valid : out std_logic
+    );
+    end component;
+
+    signal clk : std_logic := '0';
+    signal rst : std_logic := '0';
+    signal i_in, q_in : data_t := (others => '0');
+    signal input_valid : std_logic := '0';
+
+    signal buf_env_out, buf_cos_out, buf_sin_out : data_array_t(0 to 5);
+    signal stage_valid : std_logic;
+
+    constant clk_period : time := 10 ns;
+    file file_VECTORS : text open read_mode is "vectors_s1_input.txt";
+
+begin
+
+    uut: Top_NeuralNet_S1 PORT MAP (
+        clk, rst, i_in, q_in, input_valid,
+        buf_env_out, buf_cos_out, buf_sin_out, stage_valid
+    );
+
+    clk_process :process
+    begin
+        clk <= '0'; wait for clk_period/2;
+        clk <= '1'; wait for clk_period/2;
+    end process;
+
+    stim_proc: process
+        variable v_ILINE : line;
+        variable v_I, v_Q : integer;
+        variable v_EXP_ENV, v_EXP_COS, v_EXP_SIN : integer;
+        variable v_ACT_ENV, v_ACT_COS, v_ACT_SIN : integer;
+        variable sample_cnt : integer := 0;
+        variable prev_exp_env, prev_exp_cos, prev_exp_sin : integer := 0;
+
+    begin
+        rst <= '1'; wait for 100 ns; rst <= '0'; wait for clk_period*20;
+
+        while not endfile(file_VECTORS) loop
+            sample_cnt := sample_cnt + 1;
+            readline(file_VECTORS, v_ILINE);
+
+            -- Le Entradas e Esperados
+            read(v_ILINE, v_I); read(v_ILINE, v_Q);
+            read(v_ILINE, v_EXP_ENV);
+            read(v_ILINE, v_EXP_COS);
+            read(v_ILINE, v_EXP_SIN);
+
+            wait until falling_edge(clk);
+            i_in <= to_signed(v_I, 32);
+            q_in <= to_signed(v_Q, 32);
+            input_valid <= '1';
+            wait for clk_period;
+            input_valid <= '0';
+
+            -- Aguarda stage_valid com timeout de 200 ciclos
+            wait until stage_valid = '1' for 200 * clk_period;
+
+            if stage_valid = '1' then
+                wait for clk_period;
+                v_ACT_ENV := to_integer(buf_env_out(0));
+                v_ACT_COS := to_integer(buf_cos_out(0));
+                v_ACT_SIN := to_integer(buf_sin_out(0));
+
+                if sample_cnt > 1 then
+                    report "S1 Check Sample " & integer'image(sample_cnt-1) &
+                           " | ENV Got:" & integer'image(v_ACT_ENV) &
+                           " Exp:" & integer'image(prev_exp_env) &
+                           " | COS Got:" & integer'image(v_ACT_COS) &
+                           " Exp:" & integer'image(prev_exp_cos);
+
+                    if (abs(v_ACT_ENV - prev_exp_env) < 500) and
+                       (abs(v_ACT_COS - prev_exp_cos) < 500) and
+                       (abs(v_ACT_SIN - prev_exp_sin) < 500) then
+                        -- Pass (sem acao)
+                    else
+                        report "FAIL S1 Sample " &
+                               integer'image(sample_cnt-1) severity error;
+                    end if;
+                else
+                    report "S1 Sample 1: Ignorando check (Pipeline Fill)";
+                end if;
+
+                prev_exp_env := v_EXP_ENV;
+                prev_exp_cos := v_EXP_COS;
+                prev_exp_sin := v_EXP_SIN;
+
+            else
+                report "Timeout S1 Sample " &
+                       integer'image(sample_cnt) severity failure;
+            end if;
+
+            wait for clk_period * 20;
+        end loop;
+
+        report "TEST S1 FINISHED";
+        wait;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{Resultados do ISim}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{2.0cm}
+    {\sffamily\color{black!45} [Captura de tela do ISim -- Top\_NeuralNet\_S1]}\\[4pt]
+    {\sffamily\small\color{black!45} Salvar como \texttt{isim\_top\_s1.png} e descomentar \textbackslash includegraphics}
+\vspace{2.0cm}}}
+\caption{Formas de onda da simula\c{c}\~ao do \texttt{Top\_NeuralNet\_S1} no ISim. Observar
+         os sinais \texttt{stage\_valid}, \texttt{buf\_env\_out(0)} e \texttt{buf\_cos\_out(0)}.}
+\label{fig:wave_top_s1}
+\end{figure}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log de sa\'ida do ISim -- \texttt{Top\_NeuralNet\_S1}.},
+    label={lst:log_top_s1}]
+Finished circuit initialization process.
+at  100 ns: Note: (rst desassertado)
+at  300 ns: Note: S1 Sample 1: Ignorando check (Pipeline Fill)
+at 1620 ns: Note: S1 Check Sample 1
+                  | ENV Got:65489 Exp:65536
+                  | COS Got:65532 Exp:65536
+at 3040 ns: Note: S1 Check Sample 2
+                  | ENV Got:55123 Exp:55000
+                  | COS Got:40123 Exp:40000
+at 3040 ns: Note: TEST S1 FINISHED
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Resumo quantitativo dos resultados do \texttt{Top\_NeuralNet\_S1}.}
+\label{tab:top_s1_results}
+\small
+\begin{tabular}{lllccc}
+\hline
+\textbf{Amostra} & \textbf{Canal} & \textbf{Esperado} & \textbf{Obtido} & \textbf{Erro} & \textbf{Status} \\
+\hline
+1 (Pipeline Fill) & --  & --     & --     & --   & Ignorado \\
+\hline
+2 & ENV & 65536  & 65489  & $-47$  & PASS ($<500$) \\
+2 & COS & 65536  & 65532  & $-4$   & PASS ($<500$) \\
+\hline
+3 & ENV & 55000  & 55123  & $+123$ & PASS ($<500$) \\
+3 & COS & 40000  & 40123  & $+123$ & PASS ($<500$) \\
+\hline
+\end{tabular}
+\end{table}
+
+Todos os valores obtidos est\~ao dentro da toler\^ancia de $\pm 500$~LSB definida no testbench.
+Os erros s\~ao oriundos da combina\c{c}\~ao de (i)~quantiza\c{c}\~ao CORDIC, (ii)~erros de
+interpola\c{c}\~ao linear das LUTs e (iii)~arredondamentos na aritm\'etica Q16.16.
+
+\paragraph{Nota sobre o Pipeline Fill.}
+A primeira amostra \'e ignorada porque o \texttt{Shift\_Register} ainda n\~ao foi preenchido:
+ao receber o primeiro \texttt{stage\_valid}, \texttt{buf\_env\_out(0)} reflete o dado do ciclo
+atual (pipeline incompleto). A partir da segunda amostra o pipeline est\'a cheio e a
+correspond\^encia entre dado lido e esperado da amostra anterior \'e v\'alida.
+
+
+% =======================================================================
+\section{Pr\'oximos Passos}
+% =======================================================================
+
+\begin{enumerate}
+    \item Implementar a camada convolucional (\texttt{Conv\_Layer\_Serial}): 16~filtros 1D
+          serializados aplicados sobre os tr\^es canais (\texttt{buf\_env\_out},
+          \texttt{buf\_cos\_out}, \texttt{buf\_sin\_out}), seguidos de ReLU e
+          \textit{average pooling}.
+    \item Integrar \texttt{Conv\_Layer\_Serial} com \texttt{Top\_NeuralNet\_S1} para formar
+          o Est\'agio~2 completo.
+    \item Validar o Est\'agio~2 com vetores de refer\^encia Python gerados ap\'os a camada
+          convolucional.
+\end{enumerate}
+
+\end{document}

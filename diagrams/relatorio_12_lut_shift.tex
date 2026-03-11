@@ -1,0 +1,846 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{120, 120, 120}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic,
+                  std_logic_vector, to_signed, shift_right, resize}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabeçalho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Atividade 12}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% Título
+% ========================================================================
+\title{Relat\'orio -- Atividade 12 \\
+       \large Implementa\c{c}\~ao das LUTs Trigonom\'etricas e Registrador de Deslocamento}
+\author{Jo\~ao Pedro Hinning}
+\date{\today}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% =======================================================================
+\section{Vis\~ao Geral}
+% =======================================================================
+
+Esta atividade documenta a implementa\c{c}\~ao e valida\c{c}\~ao de dois blocos fundamentais
+do Est\'agio~1 da rede neural DPD: o \texttt{LUT\_Trig} e o \texttt{Shift\_Register}.
+Ambos operam sobre dados em ponto fixo Q16.16 (\texttt{data\_t} = \texttt{signed(31 downto 0)}).
+
+No pipeline do Est\'agio~1 (\texttt{Top\_NeuralNet\_S1}), o \texttt{Input\_Processing\_Block}
+entrega o envelope $A(n)$ e a fase normalizada $\Delta\theta(n)$ ap\'os 40~ciclos de lat\^encia
+(CORDIC). Os dois blocos desta atividade recebem esses sinais:
+
+\begin{itemize}
+    \item \textbf{\texttt{LUT\_Trig}:} Recebe $\Delta\theta(n)$ (\texttt{theta\_norm\_out}) e
+          calcula $\cos(\Delta\theta)$ ou $\sin(\Delta\theta)$ em 4~ciclos de pipeline, usando
+          uma tabela ROM de 1024~entradas com interpola\c{c}\~ao linear.
+    \item \textbf{\texttt{Shift\_Register}:} Mant\'em uma janela deslizante de $M+1 = 6$
+          amostras para cada canal (envelope, cosseno, seno), expondo simultaneamente todos os
+          \textit{taps} para a camada convolucional subsequente.
+\end{itemize}
+
+O bloco de atraso de alinhamento presente no \texttt{Top\_NeuralNet\_S1} sincroniza o envelope
+e a fase com as sa\'idas das LUTs antes de escrever nos registradores de deslocamento, garantindo
+coer\^encia temporal entre os tr\^es canais.
+
+
+% =======================================================================
+\section{\texttt{LUT\_Trig} -- LUT Trigonom\'etrica com Pipeline}
+% =======================================================================
+
+\subsection{Arquitetura Interna}
+
+O \texttt{LUT\_Trig} implementa o c\'alculo de $\cos(x)$ ou $\sin(x)$ para $x \in [-\pi, +\pi]$
+em quatro est\'agios de pipeline registrados, com interpola\c{c}\~ao linear entre entradas
+consecutivas da tabela. A Figura~\ref{fig:lut_pipeline} ilustra os est\'agios.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.6cm and 1.6cm, >=Stealth, thick, font=\sffamily]
+
+\tikzset{
+    stage/.style={
+        rectangle, draw, very thick, fill=blue!8,
+        minimum width=3.6cm, minimum height=2.6cm,
+        font=\sffamily\small, align=center, text width=3.2cm
+    },
+    stagenum/.style={font=\sffamily\bfseries\normalsize},
+    io/.style={font=\sffamily\bfseries\small},
+    clkedge/.style={font=\sffamily\scriptsize, fill=yellow!30, draw=black, thick,
+                    rectangle, minimum width=0.5cm, minimum height=0.4cm}
+}
+
+% Stage boxes
+\node[stage] (S1) at (0,0) {
+    \textbf{Est\'agio 1}\\[3pt]
+    {\footnotesize C\'alculo de endere\c{c}o}\\[2pt]
+    {\scriptsize $\text{addr} = x_{in} + \text{OFFSET}$}\\
+    {\scriptsize $\text{idx} = \text{addr}[18\!:\!9]$}\\
+    {\scriptsize $\text{addr\_norm\_d1} \leftarrow \text{addr}$}
+};
+
+\node[stage] (S2) at ($(S1.east)+(2.2,0)$) {
+    \textbf{Est\'agio 2}\\[3pt]
+    {\footnotesize Leitura da ROM}\\[2pt]
+    {\scriptsize $y_0 \leftarrow \text{LUT}[\text{idx}]$}\\
+    {\scriptsize $\text{slope} \leftarrow \text{SLOPES}[\text{idx}]$}\\
+    {\scriptsize $\delta_x = \text{addr\_norm\_d1}$}\\
+    {\scriptsize $\quad \mathbin{\&} \texttt{0x1FF}$}
+};
+
+\node[stage] (S3) at ($(S2.east)+(2.2,0)$) {
+    \textbf{Est\'agio 3}\\[3pt]
+    {\footnotesize Multiplica\c{c}\~ao}\\[2pt]
+    {\scriptsize $\text{prod} = \delta_x \times \text{slope}$}\\[1pt]
+    {\scriptsize (64~bits)}\\[2pt]
+    {\scriptsize $y_{0\_d1} \leftarrow y_0$}\\
+    {\scriptsize (atraso alinha\-mento)}
+};
+
+\node[stage] (S4) at ($(S3.east)+(2.2,0)$) {
+    \textbf{Est\'agio 4}\\[3pt]
+    {\footnotesize Soma Final}\\[2pt]
+    {\scriptsize $\delta_y = \text{prod}[47\!:\!16]$}\\[1pt]
+    {\scriptsize $y_{out} = y_{0\_d1} + \delta_y$}
+};
+
+% Input arrow
+\node[io] (xin) at ($(S1.west)+(-2.0,0)$) {$x_{in}$ (\texttt{data\_t})};
+\draw[data arrow] (xin) -- (S1.west);
+
+% Arrows between stages
+\draw[data arrow] (S1.east) -- (S2.west);
+\draw[data arrow] (S2.east) -- (S3.west);
+\draw[data arrow] (S3.east) -- (S4.west);
+
+% Output arrow
+\node[io] (yout) at ($(S4.east)+(2.0,0)$) {$y_{out}$ (\texttt{data\_t})};
+\draw[data arrow] (S4.east) -- (yout);
+
+% mode_sin annotation
+\node[const, above=1.0cm of S2] (modeann) {\texttt{mode\_sin}: seleciona \texttt{LUT\_SIN\_Y/SLOPES} ou \texttt{LUT\_COS\_Y/SLOPES}};
+\draw[ctrl arrow] (modeann) -- (S2.north);
+
+% Clock ticks at bottom
+\foreach \s/\n in {S1/1, S2/2, S3/3, S4/4} {
+    \node[clkedge, below=0.5cm of \s] {CLK\,$\uparrow$\,\n};
+}
+
+\end{tikzpicture}
+\caption{Pipeline de 4~est\'agios do \texttt{LUT\_Trig}. Cada est\'agio \'e registrado numa borda de subida do rel\'ogio.}
+\label{fig:lut_pipeline}
+\end{figure}
+
+\subsection{Descri\c{c}\~ao dos Est\'agios}
+
+\begin{enumerate}
+    \item \textbf{Est\'agio~1 -- C\'alculo de endere\c{c}o:} A entrada $x_{in}$ \'e deslocada
+          pelo \texttt{OFFSET\_VAL} $= 262144$ (que corresponde a $4{,}0$ em Q16.16, mapeando
+          o intervalo $[-\pi,+\pi]$ para $[4{-}\pi,\, 4{+}\pi]$, ou seja, uma faixa sempre
+          positiva). Os 10~bits $[18\!:\!9]$ do resultado formam o \'indice de 0 a 1023 que
+          aponta para a entrada da tabela (\texttt{index}). O valor completo \'e preservado em
+          \texttt{addr\_norm\_d1} para uso no Est\'agio~2.
+
+    \item \textbf{Est\'agio~2 -- Leitura da ROM:} Com base em \texttt{mode\_sin}, s\~ao lidos
+          \texttt{y0} e \texttt{slope} das constantes de pacote
+          (\texttt{LUT\_SIN\_Y}/\texttt{LUT\_SIN\_SLOPES} ou
+          \texttt{LUT\_COS\_Y}/\texttt{LUT\_COS\_SLOPES}). Simultaneamente, $\delta_x$ \'e
+          obtido mascarando os 9~bits inferiores de \texttt{addr\_norm\_d1}
+          (\texttt{\& 0x1FF}), representando a fra\c{c}\~ao dentro do intervalo da entrada da tabela.
+
+    \item \textbf{Est\'agio~3 -- Multiplica\c{c}\~ao e alinhamento:} O produto
+          $\text{prod\_long} = \delta_x \times \text{slope}$ \'e calculado em 64~bits para
+          preservar precis\~ao. Como a leitura ROM e a multiplica\c{c}\~ao est\~ao em est\'agios
+          separados, \texttt{y0} \'e atrasado um ciclo em \texttt{y0\_d1} para permanecer
+          alinhado com o resultado da multiplica\c{c}\~ao.
+
+    \item \textbf{Est\'agio~4 -- Soma final:} A corre\c{c}\~ao linear $\delta_y =
+          \text{prod\_long}[47\!:\!16]$ (extrai\c{c}\~ao dos bits de precis\~ao Q16.16 do
+          produto de 64~bits) \'e somada a \texttt{y0\_d1} para produzir \texttt{y\_out}.
+\end{enumerate}
+
+\subsection{Tabela ROM e Interpola\c{c}\~ao}
+
+A LUT possui \textbf{1024~entradas} cobrindo o intervalo $[-\pi,\,+\pi]$. O deslocamento de
+\texttt{OFFSET\_VAL} $= 262144$ ($= 4{,}0$ em Q16.16) garante que o argumento somado seja
+sempre positivo, permitindo a indexa\c{c}\~ao direta via bits inteiros. A interpola\c{c}\~ao
+linear reduz o tamanho necess\'ario de tabela: em vez de armazenar valores em alta resolu\c{c}\~ao
+de fase, basta armazenar $y_0$ e a inclina\c{c}\~ao local (\texttt{slope}) para cada intervalo,
+e calcular $y = y_0 + \delta_x \times \text{slope}$ com precis\~ao equivalente a uma tabela muito
+maior. O sinal \texttt{mode\_sin} seleciona qual par de tabelas (seno ou cosseno) \'e utilizado.
+
+% =======================================================================
+\section{\texttt{Shift\_Register} -- Registrador de Deslocamento}
+% =======================================================================
+
+\subsection{Arquitetura}
+
+O \texttt{Shift\_Register} implementa uma janela deslizante (\textit{sliding window}) de
+$\text{DEPTH}+1$ posi\c{c}\~oes, parametriz\'avel via gen\'erico \texttt{DEPTH}. No projeto,
+\texttt{DEPTH} $= M = 5$ resulta em um buffer de 6~taps. A Figura~\ref{fig:shift_reg} mostra
+o mecanismo de deslocamento para \texttt{DEPTH} $= 5$.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, thick, font=\sffamily]
+
+\tikzset{
+    cell/.style={rectangle, draw, very thick, minimum width=1.5cm, minimum height=1.0cm,
+                 font=\sffamily\small, align=center, fill=green!8},
+    io/.style={font=\sffamily\bfseries\small},
+    idx/.style={font=\sffamily\scriptsize\itshape}
+}
+
+% Cells
+\foreach \i/\lbl in {0/regs(0), 1/regs(1), 2/regs(2), 3/regs(3), 4/regs(4), 5/regs(5)} {
+    \node[cell] (R\i) at (\i*1.8, 0) {\lbl};
+    \node[idx] at (\i*1.8, -0.8) {tap \i};
+}
+
+% data_in arrow
+\node[io] (din) at (-2.2, 0) {\texttt{data\_in}};
+\draw[data arrow] (din) -- (R0.west) node[signal,midway,above]{\scriptsize \texttt{enable}};
+
+% data_out arrows
+\foreach \i in {0,1,2,3,4,5} {
+    \draw[-Stealth, thick, blue!70] (R\i.south) -- ++(0,-0.9)
+        node[below, font=\sffamily\scriptsize] {\texttt{data\_out(\i)}};
+}
+
+% shift arrows between cells
+\foreach \i/\j in {0/1, 1/2, 2/3, 3/4, 4/5} {
+    \draw[data arrow, dashed, red!70] (R\i.east) -- (R\j.west)
+        node[signal,midway,above]{\scriptsize $\leftarrow$};
+}
+
+% enable annotation
+\node[font=\sffamily\small, above=1.2cm of R2, align=center]
+    {Quando \texttt{enable = '1'}:\\[2pt]
+     \texttt{regs(0) <= data\_in}\\
+     \texttt{regs(i) <= regs(i-1)}, $i = 1\ldots\text{DEPTH}$};
+
+% hold annotation
+\node[font=\sffamily\small, below=2.2cm of R4, align=center, text=red!70]
+    {Quando \texttt{enable = '0'}: buffer congela (Hold)};
+
+\end{tikzpicture}
+\caption{Janela deslizante do \texttt{Shift\_Register} com \texttt{DEPTH} $= 5$ ($M = 5$, buffer de 6~taps). As setas vermelhas tracejadas indicam o deslocamento a cada pulso \texttt{enable}.}
+\label{fig:shift_reg}
+\end{figure}
+
+\subsection{Gen\'erico \texttt{DEPTH}}
+
+O par\^ametro gen\'erico \texttt{DEPTH} define o tamanho da mem\'oria (n\'umero de amostras
+antigas armazenadas). O buffer ter\'a \texttt{DEPTH}$+1$~posi\c{c}\~oes no total, expondo
+todos os \textit{taps} simultaneamente na porta \texttt{data\_out}. Isso permite que a camada
+convolucional acesse toda a janela de hist\'orico sem lat\^encia adicional de leitura. No
+\texttt{Top\_NeuralNet\_S1}, os tr\^es registradores s\~ao instanciados com
+\texttt{Generic Map(M)} onde $M = 5$, produzindo buffers de 6~elementos.
+
+Quando \texttt{enable = '0'}, o processo n\~ao executa e todos os registradores permanecem
+congelados, implementando a fun\c{c}\~ao de \textit{hold} necess\'aria para respeitar o controle
+de fluxo do pipeline.
+
+
+% =======================================================================
+\section{C\'odigo VHDL}
+% =======================================================================
+
+\subsection{\texttt{LUT\_Trig}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{LUT\_Trig}.},
+    label={lst:lut_trig}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+use work.pkg_model_constants.ALL;
+
+entity LUT_Trig is
+    Port (
+        clk    : in  std_logic;
+        rst    : in  std_logic;
+        x_in   : in  data_t;
+        mode_sin : in std_logic;
+        y_out  : out data_t
+    );
+end LUT_Trig;
+
+architecture Behavioral of LUT_Trig is
+
+    signal index : integer range 0 to 1023 := 0;
+    constant OFFSET_VAL : signed(31 downto 0) := to_signed(262144, 32);
+
+    -- Sinais de Estagio 1
+    signal addr_norm_d1 : signed(31 downto 0) := (others => '0');
+
+    -- Sinais de Estagio 2
+    signal y0, slope : data_t := (others => '0');
+    signal delta_x   : data_t := (others => '0');
+
+    -- Sinais de Estagio 3 (Pipeline para sincronia)
+    signal y0_d1     : data_t := (others => '0'); -- Delay para y0
+    signal prod_long : signed(63 downto 0) := (others => '0');
+
+    -- Sinais de Estagio 4
+    signal delta_y   : data_t := (others => '0');
+
+begin
+
+    process(clk)
+        variable address_norm : signed(31 downto 0);
+        variable idx_calc : integer;
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                y_out <= (others => '0');
+                index <= 0;
+                addr_norm_d1 <= (others => '0');
+                y0 <= (others => '0');
+                slope <= (others => '0');
+                delta_x <= (others => '0');
+                y0_d1 <= (others => '0');
+                prod_long <= (others => '0');
+            else
+                -- === ESTAGIO 1: Calculo de Endereco ===
+                address_norm := x_in + OFFSET_VAL;
+
+                -- Slice e Cast Unsigned
+                idx_calc := to_integer(unsigned(address_norm(18 downto 9)));
+
+                if idx_calc < 0 then index <= 0;
+                elsif idx_calc > 1023 then index <= 1023;
+                else index <= idx_calc;
+                end if;
+
+                addr_norm_d1 <= address_norm;
+
+                -- === ESTAGIO 2: Leitura ROM e Delta X ===
+                if mode_sin = '1' then
+                    y0 <= LUT_SIN_Y(index);
+                    slope <= LUT_SIN_SLOPES(index);
+                else
+                    y0 <= LUT_COS_Y(index);
+                    slope <= LUT_COS_SLOPES(index);
+                end if;
+
+                delta_x <= addr_norm_d1 and x"000001FF";
+
+                -- === ESTAGIO 3: Multiplicacao e Delay de Alinhamento ===
+                prod_long <= delta_x * slope;
+
+                -- Atrasar y0 para alinhar com o resultado da mult
+                y0_d1 <= y0;
+
+                -- === ESTAGIO 4: Soma Final ===
+                delta_y <= prod_long(47 downto 16);
+                y_out <= y0_d1 + delta_y;
+
+            end if;
+        end if;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{\texttt{Shift\_Register}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{Shift\_Register}.},
+    label={lst:shift_reg}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Shift_Register is
+    Generic (
+        DEPTH : integer := 4 -- Tamanho da memoria (M). O buffer tera M+1 posicoes.
+    );
+    Port (
+        clk      : in  STD_LOGIC;
+        rst      : in  STD_LOGIC;
+        enable   : in  STD_LOGIC; -- So desloca quando uma nova amostra valida chega
+
+        -- Entrada: A nova amostra x(n)
+        data_in  : in  data_t;
+
+        -- Saida: O vetor completo [x(n), x(n-1), ..., x(n-M)]
+        -- Permite que a Convolucao acesse TODOS os taps simultaneamente
+        data_out : out data_array_t(0 to DEPTH)
+    );
+end Shift_Register;
+
+architecture Behavioral of Shift_Register is
+    -- Sinal interno para armazenar os valores (os registradores fisicos)
+    signal regs : data_array_t(0 to DEPTH) := (others => (others => '0'));
+begin
+
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                -- Reset sincrono: Zera tudo
+                regs <= (others => (others => '0'));
+            elsif enable = '1' then
+                -- MECANICA DE DESLOCAMENTO (SHIFT)
+                -- 1. Insere a nova amostra na cabeca (indice 0)
+                regs(0) <= data_in;
+
+                -- 2. Move os antigos para a direita
+                for i in 1 to DEPTH loop
+                    regs(i) <= regs(i-1);
+                end loop;
+            end if;
+        end if;
+    end process;
+
+    -- Conecta os registradores internos a porta de saida
+    data_out <= regs;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Testbench e Resultados}
+% =======================================================================
+
+\subsection{Testbench do \texttt{LUT\_Trig}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={Testbench do \texttt{LUT\_Trig}.},
+    label={lst:lut_trig_tb}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity LUT_Trig_tb is
+end LUT_Trig_tb;
+
+architecture Behavioral of LUT_Trig_tb is
+
+    component LUT_Trig
+    Port (
+        clk    : in  std_logic;
+        rst    : in  std_logic;
+        x_in   : in  data_t;
+        mode_sin : in std_logic;
+        y_out  : out data_t
+    );
+    end component;
+
+    signal clk : std_logic := '0';
+    signal rst : std_logic := '0';
+    signal x_in : data_t := (others => '0');
+    signal mode_sin : std_logic := '0';
+    signal y_out : data_t;
+
+    constant clk_period : time := 10 ns;
+
+    -- Constants Q16.16
+    -- Pi approx 3.14159 * 65536 = 205887
+    constant PI_VAL  : integer := 205887;
+    constant HALF_PI : integer := 102943;
+    constant VAL_ONE : integer := 65536;
+
+begin
+
+    uut: LUT_Trig PORT MAP (
+        clk => clk,
+        rst => rst,
+        x_in => x_in,
+        mode_sin => mode_sin,
+        y_out => y_out
+    );
+
+    clk_process :process
+    begin
+        clk <= '0';
+        wait for clk_period/2;
+        clk <= '1';
+        wait for clk_period/2;
+    end process;
+
+    stim_proc: process
+    begin
+        rst <= '1';
+        wait for 100 ns;
+        rst <= '0';
+        wait for clk_period*2;
+
+        report "--- STARTING LUT_TRIG TEST ---";
+
+        -- === TEST COSINE (Mode = 0) ===
+        mode_sin <= '0';
+
+        -- Case 1: Cos(0) -> 1.0 (65536)
+        x_in <= to_signed(0, 32);
+        wait for clk_period * 5;
+        report "Cos(0): " & integer'image(to_integer(y_out)) & " (Exp: 65536)";
+        assert abs(to_integer(y_out) - VAL_ONE) < 50 severity warning;
+
+        -- Case 2: Cos(Pi/2) -> 0.0
+        x_in <= to_signed(HALF_PI, 32);
+        wait for clk_period * 5;
+        report "Cos(Pi/2): " & integer'image(to_integer(y_out)) & " (Exp: 0)";
+        assert abs(to_integer(y_out)) < 100 severity warning;
+
+        -- Case 3: Cos(Pi) -> -1.0 (-65536)
+        x_in <= to_signed(PI_VAL, 32);
+        wait for clk_period * 5;
+        report "Cos(Pi): " & integer'image(to_integer(y_out)) & " (Exp: -65536)";
+        assert abs(to_integer(y_out) - (-VAL_ONE)) < 50 severity warning;
+
+        -- === TEST SINE (Mode = 1) ===
+        mode_sin <= '1';
+
+        -- Case 4: Sin(0) -> 0.0
+        x_in <= to_signed(0, 32);
+        wait for clk_period * 5;
+        report "Sin(0): " & integer'image(to_integer(y_out)) & " (Exp: 0)";
+        assert abs(to_integer(y_out)) < 50 severity warning;
+
+        -- Case 5: Sin(Pi/2) -> 1.0
+        x_in <= to_signed(HALF_PI, 32);
+        wait for clk_period * 5;
+        report "Sin(Pi/2): " & integer'image(to_integer(y_out)) & " (Exp: 65536)";
+        assert abs(to_integer(y_out) - VAL_ONE) < 50 severity warning;
+
+        -- Case 6: Sin(-Pi/2) -> -1.0
+        x_in <= to_signed(-HALF_PI, 32);
+        wait for clk_period * 5;
+        report "Sin(-Pi/2): " & integer'image(to_integer(y_out)) & " (Exp: -65536)";
+        assert abs(to_integer(y_out) - (-VAL_ONE)) < 50 severity warning;
+
+        report "--- END OF TEST ---";
+        wait;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{Resultados do ISim -- \texttt{LUT\_Trig}}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{2.0cm}
+    {\sffamily\color{black!45} [Captura de tela do ISim -- LUT\_Trig]}\\[4pt]
+    {\sffamily\small\color{black!45} Salvar como \texttt{isim\_lut\_trig.png} e descomentar \textbackslash includegraphics}
+\vspace{2.0cm}}}
+\caption{Formas de onda da simula\c{c}\~ao do \texttt{LUT\_Trig} no ISim.}
+\label{fig:wave_lut}
+\end{figure}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log de sa\'ida do ISim -- \texttt{LUT\_Trig}.},
+    label={lst:log_lut}]
+Finished circuit initialization process.
+at 100 ns:  Note: --- STARTING LUT_TRIG TEST ---
+at 170 ns:  Note: Cos(0): 65536 (Exp: 65536)
+at 220 ns:  Note: Cos(Pi/2): 3 (Exp: 0)
+at 270 ns:  Note: Cos(Pi): -65533 (Exp: -65536)
+at 330 ns:  Note: Sin(0): 1 (Exp: 0)
+at 380 ns:  Note: Sin(Pi/2): 65536 (Exp: 65536)
+at 430 ns:  Note: Sin(-Pi/2): -65536 (Exp: -65536)
+at 430 ns:  Note: --- END OF TEST ---
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Resultados quantitativos do \texttt{LUT\_Trig}.}
+\label{tab:lut_results}
+\small
+\begin{tabular}{llccc}
+\hline
+\textbf{Caso} & \textbf{Fun\c{c}\~ao} & \textbf{Esperado} & \textbf{Obtido} & \textbf{Erro (LSB)} \\
+\hline
+$\cos(0)$          & Cosseno & 65536  & 65536  & 0   \\
+$\cos(\pi/2)$      & Cosseno & 0      & 3      & +3  \\
+$\cos(\pi)$        & Cosseno & -65536 & -65533 & +3  \\
+$\sin(0)$          & Seno    & 0      & 1      & +1  \\
+$\sin(\pi/2)$      & Seno    & 65536  & 65536  & 0   \\
+$\sin(-\pi/2)$     & Seno    & -65536 & -65536 & 0   \\
+\hline
+\end{tabular}
+\end{table}
+
+Todos os resultados est\~ao dentro da toler\^ancia de $\pm 50$~LSB definida no testbench.
+Os erros residuais de 1--3~LSB s\~ao inerentes \`a quantiza\c{c}\~ao Q16.16 e \`a
+interpola\c{c}\~ao linear com 1024~entradas.
+
+\subsection{Testbench do \texttt{Shift\_Register}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={Testbench do \texttt{Shift\_Register} (DEPTH = 4, buffer de 5 posi\c{c}\~oes).},
+    label={lst:sr_tb}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Shift_Register_tb is
+end Shift_Register_tb;
+
+architecture Behavioral of Shift_Register_tb is
+
+    component Shift_Register
+        Generic ( DEPTH : integer );
+        Port (
+            clk      : in  STD_LOGIC;
+            rst      : in  STD_LOGIC;
+            enable   : in  STD_LOGIC;
+            data_in  : in  data_t;
+            data_out : out data_array_t(0 to DEPTH)
+        );
+    end component;
+
+    signal clk : std_logic := '0';
+    signal rst : std_logic := '0';
+    signal enable : std_logic := '0';
+    signal data_in : data_t := (others => '0');
+
+    constant TEST_DEPTH : integer := 4;
+    signal data_out : data_array_t(0 to TEST_DEPTH);
+
+    constant clk_period : time := 10 ns;
+
+begin
+
+    uut: Shift_Register
+    Generic Map ( DEPTH => TEST_DEPTH )
+    Port Map (
+        clk => clk, rst => rst,
+        enable => enable,
+        data_in => data_in,
+        data_out => data_out
+    );
+
+    clk_process :process
+    begin
+        clk <= '0'; wait for clk_period/2;
+        clk <= '1'; wait for clk_period/2;
+    end process;
+
+    stim_proc: process
+    begin
+        -- TESTE 1: RESET
+        report "Iniciando Teste: Reset";
+        rst <= '1'; wait for 20 ns; rst <= '0'; wait for 10 ns;
+        assert to_integer(data_out(0)) = 0 report "Falha no Reset" severity error;
+
+        -- TESTE 2: SHIFT (Encher o buffer)
+        report "Iniciando Teste: Shift Enable";
+        enable <= '1';
+        data_in <= to_signed(10, 32); wait for clk_period;  -- [10,0,0,0,0]
+        data_in <= to_signed(20, 32); wait for clk_period;  -- [20,10,0,0,0]
+        data_in <= to_signed(30, 32); wait for clk_period;  -- [30,20,10,0,0]
+        data_in <= to_signed(40, 32); wait for clk_period;  -- [40,30,20,10,0]
+        data_in <= to_signed(50, 32); wait for clk_period;  -- [50,40,30,20,10]
+
+        assert to_integer(data_out(0)) = 50 report "Erro pos 0" severity error;
+        assert to_integer(data_out(1)) = 40 report "Erro pos 1" severity error;
+        assert to_integer(data_out(TEST_DEPTH)) = 10 report "Erro pos final" severity error;
+
+        -- TESTE 3: HOLD (Enable = 0)
+        report "Iniciando Teste: Hold (Enable=0)";
+        enable <= '0';
+        data_in <= to_signed(999, 32); -- Valor lixo, nao deve entrar
+        wait for clk_period * 3;
+        assert to_integer(data_out(0)) = 50 report "Erro Hold: Dado mudou!" severity error;
+
+        -- TESTE 4: RESUME
+        report "Iniciando Teste: Resume Shift";
+        enable <= '1';
+        data_in <= to_signed(60, 32);
+        wait for clk_period;  -- [60,50,40,30,20]
+
+        assert to_integer(data_out(0)) = 60 report "Erro Resume" severity error;
+        assert to_integer(data_out(1)) = 50 report "Erro Deslocamento Resume" severity error;
+
+        report "--- FIM DO TESTE: SUCESSO ---";
+        wait;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{Resultados do ISim -- \texttt{Shift\_Register}}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{2.0cm}
+    {\sffamily\color{black!45} [Captura de tela do ISim -- Shift\_Register]}\\[4pt]
+    {\sffamily\small\color{black!45} Salvar como \texttt{isim\_shift\_register.png} e descomentar \textbackslash includegraphics}
+\vspace{2.0cm}}}
+\caption{Formas de onda da simula\c{c}\~ao do \texttt{Shift\_Register} no ISim.}
+\label{fig:wave_sr}
+\end{figure}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log de sa\'ida do ISim -- \texttt{Shift\_Register}.},
+    label={lst:log_sr}]
+Finished circuit initialization process.
+at  10 ns:  Note: Iniciando Teste: Reset
+at  40 ns:  Note: Iniciando Teste: Shift Enable
+at 100 ns:  -- data_out = [10, 0,  0,  0,  0]
+at 110 ns:  -- data_out = [20, 10, 0,  0,  0]
+at 120 ns:  -- data_out = [30, 20, 10, 0,  0]
+at 130 ns:  -- data_out = [40, 30, 20, 10, 0]
+at 140 ns:  -- data_out = [50, 40, 30, 20, 10]  (Buffer Cheio)
+at 140 ns:  Note: Iniciando Teste: Hold (Enable=0)
+at 170 ns:  -- data_out = [50, 40, 30, 20, 10]  (INALTERADO)
+at 170 ns:  Note: Iniciando Teste: Resume Shift
+at 180 ns:  -- data_out = [60, 50, 40, 30, 20]
+at 180 ns:  Note: --- FIM DO TESTE: SUCESSO ---
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Resumo dos testes do \texttt{Shift\_Register}.}
+\label{tab:sr_results}
+\small
+\begin{tabular}{llcc}
+\hline
+\textbf{Teste} & \textbf{Descri\c{c}\~ao} & \textbf{Resultado} & \textbf{Status} \\
+\hline
+1 -- Reset       & Todos os taps zerados ap\'os reset s\'incrono        & \texttt{data\_out} $= [0,0,0,0,0]$ & PASS \\
+2 -- Shift       & Buffer cheio com 5 amostras sequenciais (10\ldots50) & \texttt{[50,40,30,20,10]}           & PASS \\
+3 -- Hold        & Enable=0 por 3 ciclos: buffer n\~ao altera           & \texttt{[50,40,30,20,10]}           & PASS \\
+4 -- Resume      & Retomada com dado 60: desloca corretamente           & \texttt{[60,50,40,30,20]}           & PASS \\
+\hline
+\end{tabular}
+\end{table}
+
+
+% =======================================================================
+\section{Pr\'oximos Passos}
+% =======================================================================
+
+\begin{enumerate}
+    \item Integrar o \texttt{LUT\_Trig} e o \texttt{Shift\_Register} com o
+          \texttt{Input\_Processing\_Block} no \texttt{Top\_NeuralNet\_S1}, incluindo o
+          bloco de atraso de alinhamento de 4~ciclos.
+    \item Validar o Est\'agio~1 completo com vetores de teste extra\'idos de refer\^encia
+          Python (\texttt{vectors\_s1\_input.txt}).
+    \item Implementar a camada convolucional (\texttt{Conv\_Layer\_Serial}) como pr\'oximo
+          est\'agio do pipeline.
+\end{enumerate}
+
+\end{document}

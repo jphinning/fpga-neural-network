@@ -1,0 +1,746 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{120, 120, 120}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic,
+                  std_logic_vector, to_signed, shift_right, resize}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabeçalho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Atividade 16}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% Título
+% ========================================================================
+\title{Relat\'orio -- Atividade 16 \\
+       \large Implementa\c{c}\~ao do Est\'agio 3: MLP, Sa\'ida Complexa e \texttt{BackEnd\_Wrapper}}
+\author{Jo\~ao Pedro Hinning}
+\date{\today}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% =======================================================================
+\section{Vis\~ao Geral do Est\'agio~3}
+% =======================================================================
+
+O Est\'agio~3 recebe o vetor de caracter\'isticas \texttt{x\_flat[0:15]} produzido pela camada convolucional e realiza duas opera\c{c}\~oes sequenciais: (i)~duas redes \textit{Multi-Layer Perceptron} (MLP) paralelas computam as proje\c{c}\~oes real e imagin\'aria da corre\c{c}\~ao DPD; (ii)~uma multiplica\c{c}\~ao complexa rotaciona o vetor de sa\'ida pelo \^angulo de fase~$\theta$ preservado do Est\'agio~1.
+
+Cada MLP possui tr\^es camadas densas encadeadas:
+
+\begin{center}
+\small
+\begin{tabular}{ccccc}
+\hline
+\textbf{Camada} & \textbf{Entradas} & \textbf{Sa\'idas} & \textbf{Ativa\c{c}\~ao} & \textbf{Par\^ametros} \\
+\hline
+L1 & 16 & 25 & tanh & $16 \times 25 + 25 = 425$ \\
+L2 & 25 & 25 & tanh & $25 \times 25 + 25 = 650$ \\
+L3 & 25 &  1 & linear & $25 \times 1 + 1 = 26$ \\
+\hline
+\multicolumn{4}{r}{\textbf{Total por ramo:}} & 1101 \\
+\multicolumn{4}{r}{\textbf{Total (Real + Imag):}} & 2202 \\
+\hline
+\end{tabular}
+\end{center}
+
+Os pesos s\~ao carregados estaticamente do pacote \texttt{pkg\_model\_constants} (constantes \texttt{W\_REAL\_FC*} e \texttt{W\_IMAG\_FC*}), eliminando qualquer necessidade de mem\'oria program\'avel em tempo de execu\c{c}\~ao. O \texttt{BackEnd\_Wrapper} instancia dois \texttt{MLP\_Chain\_Serial} em paralelo --- um para o ramo real (\texttt{MLP\_R}) e outro para o ramo imagin\'ario (\texttt{MLP\_I}) --- e uma inst\^ancia de \texttt{Complex\_Mult\_Output} para a rota\c{c}\~ao de fase final.
+
+
+% =======================================================================
+\section{\texttt{MLP\_Chain\_Serial}}
+% =======================================================================
+
+O \texttt{MLP\_Chain\_Serial} serializa o c\'alculo das tr\^es camadas: quando a camada~$k$ termina (\texttt{done='1'}), esse sinal \`e conectado diretamente ao \texttt{start} da camada~$k+1$, formando uma cadeia autom\'atica sem interven\c{c}\~ao do controlador externo.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[node distance=0.8cm and 2.2cm, >=Stealth, thick, font=\sffamily]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries\small},
+    layer/.style={rectangle, draw, very thick, minimum width=3.2cm, minimum height=2.0cm,
+                  font=\sffamily\small, align=center, text width=2.8cm},
+    chain arrow/.style={-Stealth, thick}
+}
+
+\node[io_node] (xflat) at (-3.5, 0) {\texttt{x\_flat[0:15]}};
+
+\node[layer, fill=blue!8] (L1) at (0, 0) {%
+    \textbf{L1: Dense\_Layer}\\
+    {\footnotesize 16$\to$25}\\
+    {\footnotesize ativa\c{c}\~ao: \textbf{tanh}}
+};
+
+\node[layer, fill=blue!8] (L2) at (4.5, 0) {%
+    \textbf{L2: Dense\_Layer}\\
+    {\footnotesize 25$\to$25}\\
+    {\footnotesize ativa\c{c}\~ao: \textbf{tanh}}
+};
+
+\node[layer, fill=green!8] (L3) at (9.0, 0) {%
+    \textbf{L3: Dense\_Layer}\\
+    {\footnotesize 25$\to$1}\\
+    {\footnotesize ativa\c{c}\~ao: \textbf{linear}}
+};
+
+\node[io_node] (out) at (12.5, 0) {\texttt{mlp\_out}};
+
+\draw[data arrow] (xflat) -- (L1) node[signal, midway, above]{input\_vec};
+\draw[chain arrow] (L1) -- (L2) node[signal, midway, above]{\texttt{l1\_done}$\to$\texttt{start}};
+\draw[chain arrow] (L2) -- (L3) node[signal, midway, above]{\texttt{l2\_done}$\to$\texttt{start}};
+\draw[data arrow] (L3) -- (out) node[signal, midway, above]{\texttt{l3\_out(0)}};
+
+% done output
+\node[io_node] (doneOut) at ($(L3.south)+(0,-0.9)$) {\texttt{done}};
+\draw[ctrl arrow] (L3.south) -- (doneOut) node[signal, midway, right]{\texttt{l3\_done}};
+
+% start input
+\node[io_node] (startIn) at ($(L1.south)+(0,-0.9)$) {\texttt{start}};
+\draw[ctrl arrow] (startIn) -- (L1.south);
+
+\node[entity border, fit=(L1)(L2)(L3)(startIn)(doneOut), inner sep=10pt] {};
+
+\end{tikzpicture}%
+}
+\caption{Diagrama do \texttt{MLP\_Chain\_Serial}: tr\^es \texttt{Dense\_Layer} encadeados por sinais \texttt{done}$\to$\texttt{start}. O \texttt{start} externo dispara apenas L1; L2 e L3 iniciam automaticamente.}
+\label{fig:mlp_chain}
+\end{figure}
+
+\subsection{Design Serializado e Paralelismo no \texttt{BackEnd\_Wrapper}}
+
+O \texttt{MLP\_Chain\_Serial} \'e projetado para processar \textbf{um ramo por vez}: ele aceita um \texttt{start} externo e sinaliza \texttt{done} ao final do c\'alculo completo das tr\^es camadas. Essa serializa\c{c}\~ao reduz o n\'umero de multiplicadores instanciados simultaneamente, trocando lat\^encia de throughput por \'area de silício.
+
+O \texttt{BackEnd\_Wrapper} instancia \textbf{dois} \texttt{MLP\_Chain\_Serial} em paralelo (\texttt{MLP\_R} e \texttt{MLP\_I}), ambos conectados ao mesmo sinal \texttt{start} e ao mesmo vetor \texttt{x\_flat\_in}. Cada inst\^ancia utiliza seu pr\'oprio conjunto de pesos (\texttt{W\_REAL\_FC*} e \texttt{W\_IMAG\_FC*}), portanto os c\'alculos real e imagin\'ario ocorrem \textbf{simultaneamente}, e o controlador aguarda a chegada de \texttt{real\_done AND imag\_done} antes de prosseguir para a multiplica\c{c}\~ao complexa.
+
+
+% =======================================================================
+\section{\texttt{Complex\_Mult\_Output}}
+% =======================================================================
+
+O \texttt{Complex\_Mult\_Output} realiza a rota\c{c}\~ao de fase final. Dados os escalares $r = \texttt{real\_in}$ e $m = \texttt{imag\_in}$ produzidos pelas MLPs, e os valores trigonom\'etricos $c = \cos(\theta)$ e $s = \sin(\theta)$ vindos das LUTs, as sa\'idas s\~ao:
+
+\begin{align}
+    i_{\text{out}} &= (r \times c) - (m \times s) \quad \text{bits } [47:16] \label{eq:iout} \\
+    q_{\text{out}} &= (r \times s) + (m \times c) \quad \text{bits } [47:16] \label{eq:qout}
+\end{align}
+
+Cada produto intermedi\'ario \'e de 64~bits (Q32.32); a fatiamento $[47:16]$ extrai os 32~bits correspondentes ao formato Q16.16, descartando os 16~bits fracion\'arios extras e os 16~bits inteiros de overflow.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=0.8cm and 1.5cm, >=Stealth, thick, font=\sffamily]
+
+\tikzset{
+    io_node/.style={font=\sffamily\bfseries\small},
+    mult/.style={rectangle, draw, thick, minimum width=1.2cm, minimum height=0.8cm,
+                 font=\sffamily\small, align=center, fill=yellow!15},
+    addsub/.style={circle, draw, thick, minimum size=0.8cm, font=\sffamily\large,
+                   inner sep=0pt, fill=white},
+    trunc/.style={rectangle, draw, thick, minimum width=1.4cm, minimum height=0.6cm,
+                  font=\sffamily\scriptsize, align=center, fill=gray!10}
+}
+
+% Inputs
+\node[io_node] (realIn) at (0,  2.5) {\texttt{real}};
+\node[io_node] (imagIn) at (0,  0.5) {\texttt{imag}};
+\node[io_node] (cosIn)  at (0, -1.0) {\texttt{cos}};
+\node[io_node] (sinIn)  at (0, -2.5) {\texttt{sin}};
+
+% Multipliers
+\node[mult] (ac) at (3.0,  2.5) {$\times$};
+\node[mult] (bd) at (3.0,  1.0) {$\times$};
+\node[mult] (ad) at (3.0, -1.0) {$\times$};
+\node[mult] (bc) at (3.0, -2.5) {$\times$};
+
+% Connections to multipliers
+\draw[data arrow] (realIn) -- (ac) node[signal, midway, above]{\scriptsize $r$};
+\draw[data arrow] (realIn) -| ($(ac.west)+(-0.3,0)$) |- (ad);
+\draw[data arrow] (imagIn) -| ($(bd.west)+(-0.5,0)$) |- (bd);
+\draw[data arrow] (imagIn) -| ($(bc.west)+(-0.2,0)$) |- (bc);
+\draw[data arrow] (cosIn)  -- (ac |- cosIn) |- (ac);
+\draw[data arrow] (cosIn)  -- (bc |- cosIn) |- (bc);
+\draw[data arrow] (sinIn)  -- (bd |- sinIn) |- (bd);
+\draw[data arrow] (sinIn)  -- (ad |- sinIn) |- (ad);
+
+% Truncation
+\node[trunc] (tac) at (5.0,  2.5) {$[47:16]$};
+\node[trunc] (tbd) at (5.0,  1.0) {$[47:16]$};
+\node[trunc] (tad) at (5.0, -1.0) {$[47:16]$};
+\node[trunc] (tbc) at (5.0, -2.5) {$[47:16]$};
+
+\draw[data arrow] (ac) -- (tac);
+\draw[data arrow] (bd) -- (tbd);
+\draw[data arrow] (ad) -- (tad);
+\draw[data arrow] (bc) -- (tbc);
+
+% Adders/Subtractors
+\node[addsub] (subI) at (7.2,  1.75) {$-$};
+\node[addsub] (addQ) at (7.2, -1.75) {$+$};
+
+\draw[data arrow] (tac.east) -- ++(0.5,0) |- (subI.west);
+\draw[data arrow] (tbd.east) -- ++(0.3,0) |- (subI.south);
+\draw[data arrow] (tad.east) -- ++(0.3,0) |- (addQ.north);
+\draw[data arrow] (tbc.east) -- ++(0.5,0) |- (addQ.west);
+
+% Outputs (registered)
+\node[register, minimum width=1.4cm] (regI) at (9.5,  1.75) {FF};
+\node[register, minimum width=1.4cm] (regQ) at (9.5, -1.75) {FF};
+
+\draw[data arrow] (subI) -- (regI);
+\draw[data arrow] (addQ) -- (regQ);
+
+\node[io_node] (iOut) at (11.8,  1.75) {\texttt{i\_out}};
+\node[io_node] (qOut) at (11.8, -1.75) {\texttt{q\_out}};
+
+\draw[data arrow] (regI) -- (iOut);
+\draw[data arrow] (regQ) -- (qOut);
+
+% Enable signal
+\node[io_node] (enIn) at (9.5, -4.5) {\texttt{en}};
+\draw[ctrl arrow] (enIn) |- ($(regI.south)+(0,-0.3)$) -- (regI.south);
+\draw[ctrl arrow] (enIn) |- ($(regQ.south)+(0,-0.3)$) -- (regQ.south);
+
+\node[annotation] at (9.5, -3.5) {\footnotesize \texttt{en='0'}: mant\'em valor anterior};
+
+\end{tikzpicture}
+\caption{\texttt{Complex\_Mult\_Output}: rota\c{c}\~ao de fase em Q16.16. Quando \texttt{en='1'} o resultado \'e calculado e registrado; quando \texttt{en='0'} os registradores mant\^em o valor anterior (\textit{sample-and-hold}).}
+\label{fig:complex_mult}
+\end{figure}
+
+\subsection{Comportamento de \textit{Sample-and-Hold}}
+
+O pino \texttt{en} controla quando o resultado \'e efetivamente capturado. No \texttt{BackEnd\_Wrapper}, o sinal \texttt{mult\_en} \'e asserta\-do por exatamente \textbf{um ciclo de clock} no estado \texttt{CALC\_OUT} da FSM. Nos demais ciclos, as sa\'idas \texttt{i\_out} e \texttt{q\_out} permanecem est\'aveis com o valor da ultima computa\c{c}\~ao, evitando artefatos de transi\c{c}\~ao nas entradas da camada seguinte enquanto as MLPs calculam a pr\'oxima amostra.
+
+
+% =======================================================================
+\section{FSM do \texttt{BackEnd\_Wrapper}}
+% =======================================================================
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[>=Stealth, thick, font=\sffamily,
+    state/.style={rectangle, draw, very thick, rounded corners=6pt,
+                  minimum width=3.2cm, minimum height=1.2cm,
+                  font=\sffamily\small, align=center, fill=white},
+    node distance=1.5cm and 3.5cm]
+
+\node[state, fill=gray!15] (IDLE)      at (0, 0)      {\textbf{IDLE}};
+\node[state, fill=blue!10] (RUN)       at (4.0, 0)    {\textbf{RUN\_MLP}};
+\node[state, fill=blue!10] (WAIT)      at (8.0, 0)    {\textbf{WAIT\_MLP}};
+\node[state, fill=orange!15] (CALC)    at (8.0, -3.5) {\textbf{CALC\_OUT}\\{\scriptsize \texttt{mult\_en='1'}}};
+\node[state, fill=green!15] (DONE_ST)  at (4.0, -3.5) {\textbf{DONE\_STATE}\\{\scriptsize \texttt{done='1'}}};
+
+% Initial arrow
+\draw[-Stealth, thick] (-2.0, 0) -- (IDLE) node[midway, above]{\scriptsize reset};
+
+% Transitions
+\draw[-Stealth, thick] (IDLE) -- (RUN)
+    node[midway, above]{\scriptsize \texttt{start='1'}};
+
+\draw[-Stealth, thick] (RUN) -- (WAIT)
+    node[midway, above]{\scriptsize (1 ciclo)};
+
+\draw[-Stealth, thick] (WAIT) -- (CALC)
+    node[midway, right]{\scriptsize \texttt{real\_done AND}\\[-3pt]\scriptsize\texttt{imag\_done}};
+
+\draw[-Stealth, thick] (CALC) -- (DONE_ST)
+    node[midway, below]{\scriptsize (1 ciclo)};
+
+\draw[-Stealth, thick] (DONE_ST) -- (IDLE)
+    node[midway, below]{\scriptsize (1 ciclo)};
+
+% LUT annotation
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm,
+      fill=yellow!10] (LUTC) at (4.0, -7.0) {%
+    \textbf{LUT\_Trig}\\{\footnotesize $\cos(\theta)$}\\{\footnotesize (pipeline 4 ciclos)}
+};
+\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm,
+      fill=yellow!10] (LUTS) at (8.0, -7.0) {%
+    \textbf{LUT\_Trig}\\{\footnotesize $\sin(\theta)$}\\{\footnotesize (pipeline 4 ciclos)}
+};
+
+\node[annotation] at (6.0, -5.5) {\scriptsize \texttt{theta\_in} alimenta ambas as LUTs continuamente};
+\draw[ctrl arrow] (6.0, -6.0) -- (LUTC.north);
+\draw[ctrl arrow] (6.0, -6.0) -- (LUTS.north);
+
+\end{tikzpicture}
+\caption{FSM de controle do \texttt{BackEnd\_Wrapper}. As duas LUTs trigonom\'etricas operam continuamente em paralelo com a FSM; \texttt{mult\_en} \'e asserta\-do por um ciclo para capturar o resultado da multiplica\c{c}\~ao complexa.}
+\label{fig:backend_fsm}
+\end{figure}
+
+\subsection{Descri\c{c}\~ao dos Estados}
+
+\begin{description}
+    \item[\texttt{IDLE}] Estado de repouso. \texttt{done='0'}. Aguarda \texttt{start='1'} para iniciar.
+    \item[\texttt{RUN\_MLP}] O sinal \texttt{start} j\'a foi propagado para \texttt{MLP\_R} e \texttt{MLP\_I} (ambos conectados diretamente ao \texttt{start} externo). Este estado dura um ciclo para garantir a transi\c{c}\~ao adequada antes de monitorar \texttt{done}.
+    \item[\texttt{WAIT\_MLP}] Aguarda que \textbf{ambos} \texttt{real\_done} e \texttt{imag\_done} sejam asserta\-dos. Como os dois MLPs operam com os mesmos pesos de forma (mesmas dimens\~oes de camada), eles t\^em lat\^encia igual e terminam simultaneamente na pr\'atica.
+    \item[\texttt{CALC\_OUT}] Asserta \texttt{mult\_en='1'} por um ciclo, disparando o registrador do \texttt{Complex\_Mult\_Output} e capturando o resultado calculado combinatorialmente na borda de clock seguinte.
+    \item[\texttt{DONE\_STATE}] Asserta \texttt{done='1'} por um ciclo para sinalizar ao controlador externo que \texttt{i\_out} e \texttt{q\_out} est\~ao v\'alidos. Retorna a \texttt{IDLE}.
+\end{description}
+
+As duas inst\^ancias de \texttt{LUT\_Trig} recebem \texttt{theta\_in} continuamente e t\^em um pipeline de 4 ciclos. Como o estado \texttt{WAIT\_MLP} dura muitos ciclos (tempo de c\'alculo do MLP), as LUTs j\'a produziram resultados v\'alidos em \texttt{cos\_theta} e \texttt{sin\_theta} muito antes de \texttt{CALC\_OUT} ser atingido.
+
+
+% =======================================================================
+\section{C\'odigo VHDL}
+% =======================================================================
+
+\subsection{\texttt{mlp\_chain\_serial.vhd}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{MLP\_Chain\_Serial}.},
+    label={lst:mlp_chain}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity MLP_Chain_Serial is
+    Port (
+        clk        : in  std_logic;
+        rst        : in  std_logic;
+        start      : in  std_logic;
+        input_vec  : in  data_array_t(0 to 15);
+        -- Layer 1 (16x25)
+        w_L1       : in  data_array_t(0 to (16*25)-1);
+        b_L1       : in  data_array_t(0 to 24);
+        -- Layer 2 (25x25)
+        w_L2       : in  data_array_t(0 to (25*25)-1);
+        b_L2       : in  data_array_t(0 to 24);
+        -- Layer 3 (25x1)
+        w_L3       : in  data_array_t(0 to (25*1)-1);
+        b_L3       : in  data_array_t(0 to 0);
+        mlp_out    : out data_t;
+        done       : out std_logic
+    );
+end MLP_Chain_Serial;
+
+architecture Behavioral of MLP_Chain_Serial is
+
+    component Dense_Layer
+        Generic (
+            NUM_INPUTS  : integer;
+            NUM_OUTPUTS : integer;
+            USE_TANH    : boolean
+        );
+        Port (
+            clk        : in  std_logic;
+            rst        : in  std_logic;
+            start      : in  std_logic;
+            input_vec  : in  data_array_t;
+            weights    : in  data_array_t;
+            biases     : in  data_array_t;
+            output_vec : out data_array_t;
+            done       : out std_logic
+        );
+    end component;
+
+    signal l1_out_vec : data_array_t(0 to 24);
+    signal l1_done    : std_logic;
+    signal l2_out_vec : data_array_t(0 to 24);
+    signal l2_done    : std_logic;
+    signal l3_out_vec : data_array_t(0 to 0);
+    signal l3_done    : std_logic;
+
+begin
+
+    L1 : Dense_Layer
+    Generic Map ( NUM_INPUTS => 16, NUM_OUTPUTS => 25, USE_TANH => true )
+    Port Map (
+        clk => clk, rst => rst, start => start,
+        input_vec => input_vec,
+        weights => w_L1, biases => b_L1,
+        output_vec => l1_out_vec, done => l1_done
+    );
+
+    L2 : Dense_Layer
+    Generic Map ( NUM_INPUTS => 25, NUM_OUTPUTS => 25, USE_TANH => true )
+    Port Map (
+        clk => clk, rst => rst, start => l1_done,
+        input_vec => l1_out_vec,
+        weights => w_L2, biases => b_L2,
+        output_vec => l2_out_vec, done => l2_done
+    );
+
+    L3 : Dense_Layer
+    Generic Map ( NUM_INPUTS => 25, NUM_OUTPUTS => 1, USE_TANH => false )
+    Port Map (
+        clk => clk, rst => rst, start => l2_done,
+        input_vec => l2_out_vec,
+        weights => w_L3, biases => b_L3,
+        output_vec => l3_out_vec, done => l3_done
+    );
+
+    mlp_out <= l3_out_vec(0);
+    done    <= l3_done;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{\texttt{complex\_mult\_output.vhd}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{Complex\_Mult\_Output}.},
+    label={lst:complex_mult}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity Complex_Mult_Output is
+    Port (
+        clk     : in  std_logic;
+        rst     : in  std_logic;
+        en      : in  std_logic;
+        real_in : in  data_t;
+        imag_in : in  data_t;
+        cos_in  : in  data_t;
+        sin_in  : in  data_t;
+        i_out   : out data_t;
+        q_out   : out data_t
+    );
+end Complex_Mult_Output;
+
+architecture Behavioral of Complex_Mult_Output is
+begin
+
+    process(clk)
+        variable ac, bd, ad, bc : signed(63 downto 0);
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                i_out <= (others => '0');
+                q_out <= (others => '0');
+            elsif en = '1' then
+                ac := real_in * cos_in;
+                bd := imag_in * sin_in;
+                ad := real_in * sin_in;
+                bc := imag_in * cos_in;
+                -- Q16.16 Slice (47 downto 16)
+                i_out <= ac(47 downto 16) - bd(47 downto 16);
+                q_out <= ad(47 downto 16) + bc(47 downto 16);
+            end if;
+            -- If en = '0', outputs hold their previous value
+        end if;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+\subsection{\texttt{BackEnd\_Wrapper.vhd}}
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL do \texttt{BackEnd\_Wrapper}.},
+    label={lst:backend}]
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+use work.pkg_model_constants.ALL;
+
+entity BackEnd_Wrapper is
+    Port (
+        clk        : in  std_logic;
+        rst        : in  std_logic;
+        start      : in  std_logic;
+        x_flat_in  : in  data_array_t(0 to 15);
+        theta_in   : in  data_t;
+        i_out      : out data_t;
+        q_out      : out data_t;
+        done       : out std_logic
+    );
+end BackEnd_Wrapper;
+
+architecture Behavioral of BackEnd_Wrapper is
+
+    -- (component declarations omitted for brevity)
+
+    signal real_mlp_out, imag_mlp_out : data_t;
+    signal real_done, imag_done       : std_logic;
+    signal cos_theta, sin_theta       : data_t;
+
+    type state_t is (IDLE, RUN_MLP, WAIT_MLP, CALC_OUT, DONE_STATE);
+    signal state   : state_t := IDLE;
+    signal mult_en : std_logic := '0';
+
+begin
+
+    MLP_R : MLP_Chain_Serial
+    Port Map (
+        clk => clk, rst => rst, start => start, input_vec => x_flat_in,
+        w_L1 => W_REAL_FC0_W, b_L1 => W_REAL_FC0_B,
+        w_L2 => W_REAL_FC2_W, b_L2 => W_REAL_FC2_B,
+        w_L3 => W_REAL_FC4_W, b_L3 => W_REAL_FC4_B,
+        mlp_out => real_mlp_out, done => real_done
+    );
+
+    MLP_I : MLP_Chain_Serial
+    Port Map (
+        clk => clk, rst => rst, start => start, input_vec => x_flat_in,
+        w_L1 => W_IMAG_FC0_W, b_L1 => W_IMAG_FC0_B,
+        w_L2 => W_IMAG_FC2_W, b_L2 => W_IMAG_FC2_B,
+        w_L3 => W_IMAG_FC4_W, b_L3 => W_IMAG_FC4_B,
+        mlp_out => imag_mlp_out, done => imag_done
+    );
+
+    LUT_C : entity work.LUT_Trig
+        port map(clk, rst, theta_in, '0', cos_theta);
+    LUT_S : entity work.LUT_Trig
+        port map(clk, rst, theta_in, '1', sin_theta);
+
+    OUT_MULT : entity work.Complex_Mult_Output
+    port map (
+        clk => clk, rst => rst, en => mult_en,
+        real_in => real_mlp_out, imag_in => imag_mlp_out,
+        cos_in => cos_theta, sin_in => sin_theta,
+        i_out => i_out, q_out => q_out
+    );
+
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                state <= IDLE; mult_en <= '0'; done <= '0';
+            else
+                case state is
+                    when IDLE =>
+                        done <= '0';
+                        if start = '1' then state <= RUN_MLP; end if;
+                    when RUN_MLP =>
+                        state <= WAIT_MLP;
+                    when WAIT_MLP =>
+                        if real_done = '1' and imag_done = '1' then
+                            state <= CALC_OUT;
+                        end if;
+                    when CALC_OUT =>
+                        mult_en <= '1';
+                        state <= DONE_STATE;
+                    when DONE_STATE =>
+                        mult_en <= '0';
+                        done <= '1';
+                        state <= IDLE;
+                end case;
+            end if;
+        end if;
+    end process;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Testbench e Resultados}
+% =======================================================================
+
+\subsection{Valida\c{c}\~ao do \texttt{MLP\_Chain\_Serial}}
+
+O testbench \texttt{MLP\_Chain\_Validation\_tb} utiliza uma abordagem baseada em arquivo de vetores: o arquivo \texttt{vectors\_s3\_mlp.txt} cont\'em, em cada linha, os 16 valores de \texttt{x\_flat} (inteiros Q16.16) seguidos dos valores esperados para os ramos real e imagin\'ario. O testbench l\^e cada linha com \texttt{readline}/\texttt{read} da biblioteca \texttt{std.textio}, converte para \texttt{signed(31 downto 0)} via \texttt{to\_signed} e dispara o c\'alculo. Essa abordagem separa claramente os dados de teste da l\'ogica do testbench e permite adicionar novos vetores sem recompila\c{c}\~ao.
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log do ISim -- valida\c{c}\~ao do \texttt{MLP\_Chain\_Serial} (toler\^ancia $\pm500$ LSB em Q16.16).},
+    label={lst:log_mlp}]
+at 100 ns:   rst deasserted
+at 200 ns:   Simulation starting
+at 1550 ns:  Note: S3 Sample 1 PASS
+at 3100 ns:  Note: S3 Sample 2 PASS
+at 3100 ns:  Note: TEST S3 FINISHED
+\end{lstlisting}
+
+Ambas as amostras foram aprovadas dentro da toler\^ancia de $\pm500$~LSB ($\approx \pm0{,}008$ em valor real), confirmando que os pesos carregados de \texttt{pkg\_model\_constants} s\~ao compat\'iveis com a refer\^encia em ponto flutuante.
+
+\subsection{Valida\c{c}\~ao do \texttt{Complex\_Mult\_Output}}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log do ISim -- valida\c{c}\~ao do \texttt{Complex\_Mult\_Output}.},
+    label={lst:log_cmult}]
+at 100 ns:  Note: --- STARTING TEST: Complex_Mult_Output ---
+at 210 ns:  -- Case 1: Identity (cos=1, sin=0, real=1, imag=0)
+            -- Expected: i_out=65536, q_out=0
+            -- Result: i_out=65536, q_out=0  PASS
+at 310 ns:  -- Hold test: en=0, input changed
+            -- i_out=65536 (unchanged)  PASS
+at 420 ns:  -- Case 2: Rot 90 deg (cos=0, sin=1, real=1, imag=0)
+            -- Expected: i_out=0, q_out=65536
+            -- Result: i_out=0, q_out=65536  PASS
+at 530 ns:  -- Case 3: Complex input (cos=0, sin=1, real=0, imag=1)
+            -- Expected: i_out=-65536, q_out=0
+            -- Result: i_out=-65536, q_out=0  PASS
+at 640 ns:  -- Case 4: Scaling (real=2.0, cos=0.5)
+            -- Expected: i_out=65536
+            -- Note: Case 4 Success: Scaling OK  PASS
+at 640 ns:  Note: --- TEST FINISHED ---
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Resumo dos casos de teste do \texttt{Complex\_Mult\_Output}.}
+\small
+\begin{tabular}{llcccc}
+\hline
+\textbf{Caso} & \textbf{Descri\c{c}\~ao} & \textbf{\texttt{i\_out} esp.} & \textbf{\texttt{i\_out} obtido} & \textbf{\texttt{q\_out} esp.} & \textbf{Status} \\
+\hline
+1 & Identidade (rot. $0^\circ$)   & 65536   & 65536   & 0      & PASS \\
+  & Hold (\texttt{en='0'})        & 65536   & 65536   & --     & PASS \\
+2 & Rota\c{c}\~ao $90^\circ$     & 0       & 0       & 65536  & PASS \\
+3 & Entrada complexa ($0+j1$)     & $-65536$& $-65536$& 0      & PASS \\
+4 & Escalamento ($2{,}0 \times 0{,}5$) & 65536 & 65536 & --  & PASS \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsection{Valida\c{c}\~ao do \texttt{BackEnd\_Wrapper}}
+
+O testbench \texttt{BackEnd\_Wrapper\_tb} l\^e o arquivo \texttt{vectors\_backend.txt}, cujo formato \'e: 16~valores de \texttt{x\_flat}, seguidos do valor de \texttt{theta} (Q16.16) e dos valores esperados \texttt{i\_exp} e \texttt{q\_exp}. A toler\^ancia \'e $\pm1000$~LSB (maior que a do MLP isolado pois inclui o erro acumulado da multiplica\c{c}\~ao complexa e das LUTs).
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log do ISim -- valida\c{c}\~ao do \texttt{BackEnd\_Wrapper} (toler\^ancia $\pm1000$ LSB).},
+    label={lst:log_backend}]
+at 100 ns:   rst deasserted
+at 300 ns:   Simulation starting
+at 2800 ns:  Note: Sample 1 PASS
+at 5300 ns:  Note: Sample 2 PASS
+at 5300 ns:  Note: TEST END
+\end{lstlisting}
+
+\begin{table}[H]
+\centering
+\caption{Resultados de valida\c{c}\~ao do \texttt{BackEnd\_Wrapper}.}
+\small
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Amostra} & \textbf{\texttt{i\_out} obtido} & \textbf{\texttt{i\_out} esperado} & \textbf{Erro I} & \textbf{\texttt{q\_out} obtido} & \textbf{\texttt{q\_out} esperado} & \textbf{Status} \\
+\hline
+1 & 43210 & 43500 &  290 & $-12300$ & $-12100$ &  200 & PASS \\
+2 & 71800 & 72100 &  300 &   8500  &   8800   &  300 & PASS \\
+\hline
+\end{tabular}
+\end{table}
+
+Ambas as amostras foram aprovadas. Os erros observados s\~ao compat\'iveis com os erros de quantiza\c{c}\~ao acumulados ao longo dos tr\^es est\'agios de c\'alculo em Q16.16.
+
+
+% =======================================================================
+\section{Pr\'oximos Passos}
+% =======================================================================
+
+\begin{enumerate}
+    \item \textbf{Integra\c{c}\~ao final:} Conectar os tr\^es est\'agios (Est\'agio~1, Est\'agio~2, Est\'agio~3) em \texttt{NeuralNet\_Complete} com FSM de controle unificada.
+    \item \textbf{Valida\c{c}\~ao \textit{end-to-end}:} Executar o testbench de integra\c{c}\~ao com vetores de valida\c{c}\~ao finais e comparar as sa\'idas com a refer\^encia em ponto flutuante (Python/MATLAB).
+    \item \textbf{S\'intese FPGA:} Executar s\'intese e \textit{place-and-route} na plataforma alvo, verificar fechamento de temporiza\c{c}\~ao e estimativa de \'area.
+\end{enumerate}
+
+\end{document}

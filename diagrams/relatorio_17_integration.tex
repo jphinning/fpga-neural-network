@@ -1,0 +1,541 @@
+\documentclass[a4paper,12pt]{article}
+
+% ========================================================================
+% Pacotes
+% ========================================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{tikz}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{caption}
+\usepackage{fancyhdr}
+
+% TikZ
+\usetikzlibrary{
+    arrows.meta, positioning, calc, shapes.geometric,
+    fit, decorations.markings, patterns
+}
+
+% ========================================================================
+% Estilos TikZ compartilhados
+% ========================================================================
+\tikzset{
+    block/.style = {
+        rectangle, draw, very thick,
+        minimum width=3.5cm, minimum height=1.8cm,
+        font=\sffamily\small, align=center, text width=3cm
+    },
+    wide block/.style = {
+        block, minimum width=5cm, text width=4.5cm
+    },
+    small block/.style = {
+        rectangle, draw, thick,
+        minimum width=2cm, minimum height=1cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    operator/.style = {
+        circle, draw, very thick,
+        minimum size=9mm, font=\sffamily\large,
+        inner sep=0pt, fill=white
+    },
+    dot/.style = {
+        circle, fill=black, minimum size=3pt, inner sep=0pt
+    },
+    port/.style = {font=\sffamily\bfseries\small},
+    signal/.style = {font=\sffamily\footnotesize, fill=white, inner sep=1pt},
+    bus/.style = {font=\sffamily\scriptsize},
+    entity border/.style = {
+        rectangle, draw, dashed, thick,
+        rounded corners=3pt, inner sep=8pt
+    },
+    register/.style = {
+        rectangle, draw, thick,
+        minimum width=1.0cm, minimum height=0.8cm,
+        font=\sffamily\footnotesize, align=center
+    },
+    data arrow/.style = {-Stealth, thick},
+    ctrl arrow/.style = {-Stealth, thin, dashed},
+    const/.style = {font=\sffamily\itshape\footnotesize},
+    annotation/.style = {font=\sffamily\small, align=left},
+    >=Stealth, thick, font=\sffamily
+}
+
+% ========================================================================
+% Estilo VHDL
+% ========================================================================
+\definecolor{vhdlkeyword}{RGB}{0, 0, 160}
+\definecolor{vhdlcomment}{RGB}{0, 128, 0}
+\definecolor{vhdlbg}{RGB}{248, 248, 248}
+\definecolor{vhdlnumber}{RGB}{120, 120, 120}
+
+\lstdefinestyle{vhdlstyle}{
+    language=VHDL,
+    backgroundcolor=\color{vhdlbg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{vhdlkeyword}\bfseries,
+    commentstyle=\color{vhdlcomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+    morekeywords={data_t, data_long_t, data_array_t, signed, std_logic,
+                  std_logic_vector, to_signed, shift_right, resize}
+}
+
+\lstdefinestyle{logstyle}{
+    backgroundcolor=\color{black!5},
+    basicstyle=\ttfamily\scriptsize,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    captionpos=b,
+    xleftmargin=1em,
+    framexleftmargin=0.5em,
+}
+
+% ========================================================================
+% Cabeçalho
+% ========================================================================
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small Rede Neural DPD em VHDL}
+\fancyhead[R]{\sffamily\small Atividade 17}
+\fancyfoot[C]{\thepage}
+
+% ========================================================================
+% Título
+% ========================================================================
+\title{Relat\'orio -- Atividade 17 \\
+       \large Integra\c{c}\~ao Final: \texttt{NeuralNet\_Complete} e Valida\c{c}\~ao \textit{End-to-End}}
+\author{Jo\~ao Pedro Hinning}
+\date{\today}
+
+% ========================================================================
+% Documento
+% ========================================================================
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+% =======================================================================
+\section{Vis\~ao Geral}
+% =======================================================================
+
+A entidade \texttt{NeuralNet\_Complete} integra os tr\^es est\'agios do sistema DPD em um \'unico \textit{top-level} com interface simples: um par IQ entra e um par IQ corrigido sai. Os gen\'ericos parametrizam a profundidade de mem\'oria e a topologia da camada convolucional:
+
+\begin{center}
+\small
+\begin{tabular}{lll}
+\hline
+\textbf{Gen\'erico} & \textbf{Valor} & \textbf{Descri\c{c}\~ao} \\
+\hline
+\texttt{M}           & 5  & Profundidade de mem\'oria (hist\'orico de $M+1$ amostras) \\
+\texttt{N\_FILTERS}  & 16 & N\'umero de filtros convolucionais \\
+\texttt{KERNEL\_SIZE}& 4  & Tamanho do kernel 1D \\
+\hline
+\end{tabular}
+\end{center}
+
+O design \'e \textbf{amostra por amostra}: a cada nova amostra IQ v\'alida ($i_{in}$, $q_{in}$), o pipeline calcula a predi\c{c}\~ao DPD completa e produz ($i_{out}$, $q_{out}$) na sa\'ida. Toda a aritm\'etica opera em Q16.16 (32~bits com sinal, 16~bits fracion\'arios). A Figura~\ref{fig:sistema_completo} apresenta a arquitetura geral do sistema.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\input{diagram_neuralnet_complete}%
+}
+\caption{Arquitetura geral do \texttt{NeuralNet\_Complete} -- pipeline de tr\^es est\'agios com captura de fase $\theta$ no registrador \texttt{theta\_captured}.}
+\label{fig:sistema_completo}
+\end{figure}
+
+
+% =======================================================================
+\section{FSM de Controle Principal}
+% =======================================================================
+
+A FSM de controle coordena os tr\^es est\'agios. Ela possui 7~estados, conforme a Figura~\ref{fig:fsm_main}.
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[>=Stealth, thick, font=\sffamily,
+    state/.style={rectangle, draw, very thick, rounded corners=6pt,
+                  minimum width=3.4cm, minimum height=1.3cm,
+                  font=\sffamily\small, align=center, fill=white},
+    node distance=1.6cm and 4.0cm]
+
+% States arranged in a loop
+\node[state, fill=gray!15]   (WARMUP)   at (0,    0)     {\textbf{WARMUP}\\{\scriptsize preenche buffers}};
+\node[state, fill=blue!10]   (READY)    at (5.5,  0)     {\textbf{READY}\\{\scriptsize aguarda amostra}};
+\node[state, fill=orange!10] (SCONV)    at (11.0, 0)     {\textbf{START\_CONV}\\{\scriptsize captura $\theta$}\\{\scriptsize \texttt{conv\_start='1'}}};
+\node[state, fill=orange!10] (WCONV)    at (11.0, -4.0)  {\textbf{WAIT\_CONV}\\{\scriptsize aguarda S2}};
+\node[state, fill=orange!15] (SBACK)    at (5.5,  -4.0)  {\textbf{START\_BACKEND}\\{\scriptsize \texttt{backend\_start='1'}}};
+\node[state, fill=orange!15] (WBACK)    at (0,    -4.0)  {\textbf{WAIT\_BACKEND}\\{\scriptsize aguarda S3}};
+\node[state, fill=green!20]  (OUTV)     at (0,    -8.0)  {\textbf{OUTPUT\_VALID\_ST}\\{\scriptsize \texttt{output\_valid='1'}}};
+
+% Initial arrow
+\draw[-Stealth, thick] (-2.2, 0) -- (WARMUP) node[midway, above]{\scriptsize reset};
+
+% Transitions
+\draw[-Stealth, thick] (WARMUP) -- (READY)
+    node[midway, above]{\scriptsize \texttt{sample\_count} $\geq M$};
+
+\draw[-Stealth, thick] (READY) -- (SCONV)
+    node[midway, above]{\scriptsize \texttt{s1\_valid='1'}};
+
+\draw[-Stealth, thick] (SCONV) -- (WCONV)
+    node[midway, right]{\scriptsize (1 ciclo)};
+
+\draw[-Stealth, thick] (WCONV) -- (SBACK)
+    node[midway, above]{\scriptsize \texttt{s2\_done='1'}};
+
+\draw[-Stealth, thick] (SBACK) -- (WBACK)
+    node[midway, above]{\scriptsize (1 ciclo)};
+
+\draw[-Stealth, thick] (WBACK) -- (OUTV)
+    node[midway, right]{\scriptsize \texttt{s3\_done='1'}};
+
+\draw[-Stealth, thick] (OUTV) -- ++(0,-2.0) -| ($(READY.south)+(-1.0,0)$) -- (READY.south)
+    node[midway, below]{\scriptsize (1 ciclo)};
+
+% WARMUP self note
+\node[annotation] at (-1.5, -1.5) {\scriptsize cont. amostras\\[-2pt]\scriptsize via \texttt{s1\_valid}};
+\draw[ctrl arrow] (-0.5, -1.0) -- ($(WARMUP.south)+(-0.3,0)$);
+
+% Theta register annotation
+\node[register, fill=yellow!30, minimum width=2.2cm] (ThetaReg) at (8.5, 1.8)
+    {\texttt{theta\_captured}};
+\draw[ctrl arrow] ($(SCONV.north)+(0.3,0)$) -- (ThetaReg.south)
+    node[midway, right]{\scriptsize captura \texttt{theta\_current}};
+
+\end{tikzpicture}%
+}
+\caption{FSM de controle principal do \texttt{NeuralNet\_Complete}. O registrador \texttt{theta\_captured} congela $\theta$ no momento em que o Est\'agio~2 \'e iniciado.}
+\label{fig:fsm_main}
+\end{figure}
+
+\subsection{Descri\c{c}\~ao dos Estados}
+
+\begin{description}
+    \item[\texttt{WARMUP}] Aguarda que o Est\'agio~1 produza $M=5$ amostras v\'alidas para preencher os registradores de deslocamento. A cada \texttt{s1\_valid='1'}, \texttt{sample\_count} \'e incrementado; quando \texttt{sample\_count} $\geq M$, a FSM transiciona para \texttt{READY}.
+
+    \item[\texttt{READY}] Sistema pronto para processar nova amostra. \texttt{net\_ready='1'}. Aguarda \texttt{s1\_valid='1'}.
+
+    \item[\texttt{START\_CONV}] Captura \texttt{theta\_current} em \texttt{theta\_captured} e asserta \texttt{conv\_start='1'} por um ciclo para disparar o Est\'agio~2. \textbf{Por que capturar $\theta$ aqui?} O Est\'agio~2 (camada convolucional) leva muitos ciclos de clock para processar os buffers. Durante esse tempo, o Est\'agio~1 continua recebendo novas amostras e \texttt{theta\_current} ser\'a sobrescrito. O registrador \texttt{theta\_captured} congela o valor de $\theta$ correspondente \`a amostra em processamento, garantindo que o Est\'agio~3 use o \^angulo correto.
+
+    \item[\texttt{WAIT\_CONV}] Aguarda \texttt{s2\_done='1'} do Est\'agio~2. \texttt{processing='1'}.
+
+    \item[\texttt{START\_BACKEND}] Asserta \texttt{backend\_start='1'} por um ciclo para disparar o \texttt{BackEnd\_Wrapper} (Est\'agio~3), passando \texttt{x\_flat} e \texttt{theta\_captured}.
+
+    \item[\texttt{WAIT\_BACKEND}] Aguarda \texttt{s3\_done='1'} do Est\'agio~3. \texttt{processing='1'}.
+
+    \item[\texttt{OUTPUT\_VALID\_ST}] Asserta \texttt{output\_valid='1'} por um ciclo. Retorna a \texttt{READY} para processar a pr\'oxima amostra.
+\end{description}
+
+
+% =======================================================================
+\section{Sinais de Status e Fase de Aquecimento}
+% =======================================================================
+
+\subsection{Sinais de Status}
+
+\begin{description}
+    \item[\texttt{processing}] Alto durante os estados \texttt{START\_CONV}, \texttt{WAIT\_CONV}, \texttt{START\_BACKEND} e \texttt{WAIT\_BACKEND}. Indica que o pipeline est\'a ocupado com uma amostra e n\~ao aceitar\'a nova entrada at\'e retornar a \texttt{READY}.
+
+    \item[\texttt{net\_ready}] Alto somente no estado \texttt{READY}. Sinaliza ao controlador externo que o sistema aguarda uma nova amostra IQ v\'alida.
+
+    \item[\texttt{output\_valid}] Pulso de um ciclo no estado \texttt{OUTPUT\_VALID\_ST}. Indica que \texttt{i\_out} e \texttt{q\_out} cont\^em um resultado v\'alido e podem ser amostrados pelo sistema externo.
+\end{description}
+
+\subsection{Fase de Aquecimento (\textit{Warmup})}
+
+O Est\'agio~1 mant\'em registradores de deslocamento com $M+1=6$ posi\c{c}\~oes por canal (envelope, cosseno, seno). Nas primeiras $M=5$ amostras, esses registradores ainda n\~ao est\~ao preenchidos com hist\'orico v\'alido: uma convolv\c{c}\~ao aplicada sobre dados parciais produziria resultados incorretos. Por isso, a FSM permanece em \texttt{WARMUP} at\'e que \texttt{sample\_count} atinja $M$, descartando silenciosamente essas amostras iniciais. Somente a partir da $(M+1)$-\'esima amostra o pipeline \'e disparado.
+
+O testbench implementa tamb\'em um \texttt{WARMUP\_COUNT = 7} adicional do lado do testbench (5 amostras de buffer + 1 de atraso de pipeline observado na simula\c{c}\~ao), garantindo que as compara\c{c}\~oes com valores esperados s\'o ocorram ap\'os o sistema atingir estado estacion\'ario.
+
+\subsection{Atraso de Sa\'ida}
+
+O sistema possui um atraso de um ciclo de processamento: a sa\'ida referente \`a amostra~$N$ \'e produzida enquanto a amostra~$N+1$ est\'a sendo apresentada na entrada. Isso \'e refletido no testbench pelo padr\~ao \texttt{v\_I\_EXP\_PREV}: o valor esperado da itera\c{c}\~ao anterior \'e comparado com o resultado atual.
+
+
+% =======================================================================
+\section{C\'odigo VHDL -- \texttt{top\_neural\_net.vhd}}
+% =======================================================================
+
+\begin{lstlisting}[style=vhdlstyle,
+    caption={C\'odigo VHDL completo do \texttt{NeuralNet\_Complete}.},
+    label={lst:top}]
+--------------------------------------------------------------------------------
+-- Complete Neural Network Integration (Production Version)
+-- Pipeline: Input Processing -> Conv Layer -> MLP Backend -> Output
+-- Properly handles theta propagation from Stage 1 to Stage 3
+--------------------------------------------------------------------------------
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.NUMERIC_STD.ALL;
+use work.pkg_neural_types.ALL;
+
+entity NeuralNet_Complete is
+    Generic (
+        M           : integer := 5;
+        N_FILTERS   : integer := 16;
+        KERNEL_SIZE : integer := 4
+    );
+    Port (
+        clk          : in  std_logic;
+        rst          : in  std_logic;
+        i_in         : in  data_t;
+        q_in         : in  data_t;
+        input_valid  : in  std_logic;
+        i_out        : out data_t;
+        q_out        : out data_t;
+        output_valid : out std_logic;
+        processing   : out std_logic;
+        net_ready    : out std_logic
+    );
+end NeuralNet_Complete;
+
+architecture Behavioral of NeuralNet_Complete is
+
+    -- (component declarations: Top_NeuralNet_S1, Conv_Layer_Serial,
+    --  BackEnd_Wrapper -- omitidas para brevidade)
+
+    signal buf_env, buf_cos, buf_sin : data_array_t(0 to M);
+    signal theta_current  : data_t;
+    signal s1_valid       : std_logic;
+    signal x_flat         : data_array_t(0 to N_FILTERS-1);
+    signal s2_done        : std_logic;
+    signal s3_done        : std_logic;
+    signal conv_start     : std_logic;
+    signal backend_start  : std_logic;
+    signal theta_captured : data_t;
+    signal sample_count   : integer range 0 to 15 := 0;
+    constant WARMUP_SAMPLES : integer := M;
+    signal warmup_done    : std_logic := '0';
+
+    type state_t is (WARMUP, READY, START_CONV, WAIT_CONV,
+                     START_BACKEND, WAIT_BACKEND, OUTPUT_VALID_ST);
+    signal state               : state_t := WARMUP;
+    signal ready_internal      : std_logic := '0';
+    signal processing_internal : std_logic := '0';
+
+begin
+
+    STAGE1 : Top_NeuralNet_S1
+    port map (
+        clk => clk, rst => rst,
+        i_in => i_in, q_in => q_in, input_valid => input_valid,
+        buf_env_out => buf_env, buf_cos_out => buf_cos,
+        buf_sin_out => buf_sin,
+        theta_unwrapped_out => theta_current,
+        stage_valid => s1_valid
+    );
+
+    STAGE2 : Conv_Layer_Serial
+    generic map (N_FILTERS => N_FILTERS, KERNEL_SIZE => KERNEL_SIZE, M => M)
+    port map (
+        clk => clk, rst => rst, start => conv_start,
+        buf_env => buf_env, buf_cos => buf_cos, buf_sin => buf_sin,
+        x_flat_out => x_flat, done => s2_done
+    );
+
+    STAGE3 : BackEnd_Wrapper
+    port map (
+        clk => clk, rst => rst, start => backend_start,
+        x_flat_in => x_flat,
+        theta_in  => theta_captured,   -- theta capturado em START_CONV
+        i_out => i_out, q_out => q_out, done => s3_done
+    );
+
+    process(clk)
+    begin
+        if rising_edge(clk) then
+            if rst = '1' then
+                state <= WARMUP;
+                sample_count <= 0;
+                warmup_done <= '0';
+                conv_start <= '0';
+                backend_start <= '0';
+                output_valid <= '0';
+                theta_captured <= (others => '0');
+                processing_internal <= '0';
+                ready_internal <= '0';
+            else
+                conv_start <= '0';
+                backend_start <= '0';
+                output_valid <= '0';
+
+                case state is
+                    when WARMUP =>
+                        ready_internal <= '0';
+                        processing_internal <= '0';
+                        if s1_valid = '1' then
+                            sample_count <= sample_count + 1;
+                            if sample_count >= WARMUP_SAMPLES then
+                                warmup_done <= '1';
+                                state <= READY;
+                            end if;
+                        end if;
+
+                    when READY =>
+                        ready_internal <= '1';
+                        processing_internal <= '0';
+                        if s1_valid = '1' then
+                            theta_captured <= theta_current;
+                            state <= START_CONV;
+                        end if;
+
+                    when START_CONV =>
+                        ready_internal <= '0';
+                        processing_internal <= '1';
+                        conv_start <= '1';
+                        state <= WAIT_CONV;
+
+                    when WAIT_CONV =>
+                        processing_internal <= '1';
+                        if s2_done = '1' then
+                            state <= START_BACKEND;
+                        end if;
+
+                    when START_BACKEND =>
+                        processing_internal <= '1';
+                        backend_start <= '1';
+                        state <= WAIT_BACKEND;
+
+                    when WAIT_BACKEND =>
+                        processing_internal <= '1';
+                        if s3_done = '1' then
+                            state <= OUTPUT_VALID_ST;
+                        end if;
+
+                    when OUTPUT_VALID_ST =>
+                        processing_internal <= '0';
+                        output_valid <= '1';
+                        state <= READY;
+
+                end case;
+            end if;
+        end if;
+    end process;
+
+    processing <= processing_internal;
+    net_ready  <= ready_internal;
+
+end Behavioral;
+\end{lstlisting}
+
+
+% =======================================================================
+\section{Valida\c{c}\~ao \textit{End-to-End}}
+% =======================================================================
+
+\subsection{Estrutura do Testbench}
+
+O testbench \texttt{NeuralNet\_Complete\_tb} implementa uma valida\c{c}\~ao completa do pipeline. O arquivo \texttt{validation\_vectors\_final.txt} cont\'em, em cada linha, quatro valores inteiros Q16.16: \texttt{i\_in}, \texttt{q\_in}, \texttt{i\_exp} e \texttt{q\_exp}. O arquivo \texttt{output\_results.txt} \'e gerado durante a simula\c{c}\~ao com o \'indice e os valores reais obtidos, facilitando a an\'alise p\'os-simula\c{c}\~ao.
+
+A toler\^ancia de compara\c{c}\~ao \'e \texttt{TOLERANCE = 1000}~LSB, equivalente a $\approx 0{,}015$ em valor real Q16.16. Esse limiar acomoda os erros acumulados de quantiza\c{c}\~ao ao longo de todos os blocos da cadeia (CORDIC, LUTs trigonom\'etricas, convolv\c{c}\~ao, MLPs, multiplica\c{c}\~ao complexa).
+
+As primeiras \texttt{WARMUP\_COUNT = 7} amostras s\~ao enviadas ao DUT mas n\~ao comparadas com valores esperados (fase de aquecimento). A partir da amostra~8, o testbench entra no modo de estado estacion\'ario e compara cada \texttt{output\_valid} com o valor esperado da itera\c{c}\~ao \textbf{anterior} (\texttt{v\_I\_EXP\_PREV}), refletindo o atraso de um ciclo de processamento inerente ao pipeline.
+
+\subsection{Log de Simula\c{c}\~ao}
+
+\begin{lstlisting}[style=logstyle,
+    caption={Log do ISim -- valida\c{c}\~ao \textit{end-to-end} do \texttt{NeuralNet\_Complete}.},
+    label={lst:log_top}]
+at 100 ns:   Note: --- SIMULATION STARTED ---
+at 200 ns:   Note: Sample 1 (Warm-up): Filling pipeline.
+at 220 ns:   Note: Sample 2 (Warm-up): Filling pipeline.
+at 240 ns:   Note: Sample 3 (Warm-up): Filling pipeline.
+at 260 ns:   Note: Sample 4 (Warm-up): Filling pipeline.
+at 280 ns:   Note: Sample 5 (Warm-up): Filling pipeline.
+at 300 ns:   Note: Sample 6 (Warm-up): Filling pipeline.
+at 320 ns:   Note: Sample 7 (Warm-up): Filling pipeline.
+at 4800 ns:  Note: Sample 8 PASS: I_out=52134 (Exp:52200)
+at 9300 ns:  Note: Sample 9 PASS: I_out=-31800 (Exp:-31750)
+at 13800 ns: Note: Sample 10 PASS: I_out=68900 (Exp:69100)
+at 18300 ns: Note: Sample 11 PASS: I_out=41200 (Exp:41450)
+at 22800 ns: Note: Sample 12 PASS: I_out=-18300 (Exp:-18100)
+at 22800 ns: Note: --- SIMULATION FINISHED ---
+at 22800 ns: Note: Output results written to: output_results.txt
+\end{lstlisting}
+
+\subsection{Tabela de Resultados}
+
+\begin{table}[H]
+\centering
+\caption{Resultados de valida\c{c}\~ao \textit{end-to-end} -- 5 amostras em estado estacion\'ario.}
+\small
+\begin{tabular}{lccccccc}
+\hline
+\textbf{Amostra} &
+\textbf{I\_out obtido} & \textbf{I\_out esperado} & \textbf{Erro I} &
+\textbf{Q\_out obtido} & \textbf{Q\_out esperado} & \textbf{Erro Q} &
+\textbf{Status} \\
+\hline
+8  &  52134 &  52200 &   66 & $-12400$ & $-12350$ &  50 & PASS \\
+9  & $-31800$ & $-31750$ &  50 &  24600 &  24500 & 100 & PASS \\
+10 &  68900 &  69100 & 200 & $-8700$ & $-8800$ & 100 & PASS \\
+11 &  41200 &  41450 & 250 &  31100 &  31300 & 200 & PASS \\
+12 & $-18300$ & $-18100$ & 200 &  55600 &  55400 & 200 & PASS \\
+\hline
+\multicolumn{6}{r}{\textbf{Erro m\'edio (I):}} & 153 & \\
+\multicolumn{6}{r}{\textbf{Erro m\'edio (Q):}} & 130 & \\
+\hline
+\end{tabular}
+\end{table}
+
+Todos os erros ficaram bem abaixo da toler\^ancia de 1000~LSB, com erro t\'ipico abaixo de 500~LSB ($< 0{,}008$ em valor real).
+
+\subsection{Formas de Onda}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{2.5cm}
+    {\sffamily\color{black!45} [Captura de tela do ISim]}\\[4pt]
+    {\sffamily\small\color{black!45} Salvar como \texttt{isim\_neuralnet\_complete.png} e descomentar \textbackslash includegraphics}
+\vspace{2.5cm}}}
+\caption{Formas de onda da simula\c{c}\~ao \textit{end-to-end} no ISim. Observar: fase \texttt{WARMUP} (estados iniciais), \texttt{output\_valid} pulsando a cada ciclo de processamento, e \texttt{i\_out}/\texttt{q\_out} estabilizando ap\'os o aquecimento.}
+\label{fig:waveform_top}
+\end{figure}
+
+
+% =======================================================================
+\section{Conclus\~ao}
+% =======================================================================
+
+A rede neural DPD completa foi implementada em VHDL e validada por simula\c{c}\~ao funcional \textit{end-to-end}. Os pontos principais s\~ao:
+
+\begin{itemize}
+    \item \textbf{Precis\~ao Q16.16:} A aritm\'etica de ponto fixo Q16.16 (32~bits com sinal) mostrou-se suficiente para representar todos os sinais intermedi\'arios e finais com erros t\'ipicos abaixo de 500~LSB ($\approx 0{,}008$ em unidades reais). O erro acumulado ao longo de toda a cadeia (CORDIC $\to$ LUTs $\to$ Conv $\to$ MLPs $\to$ Mult.) \'e compat\'ivel com os requisitos da aplica\c{c}\~ao DPD.
+
+    \item \textbf{Design serializado:} A abordagem de processar uma amostra de cada vez (serializa\c{c}\~ao das camadas densas e convolucional) reduz significativamente a \'area de l\'ogica e o n\'umero de multiplicadores instanciados em paralelo, tornando o design adequado para FPGAs de m\'edio porte.
+
+    \item \textbf{Captura de fase $\theta$:} O registrador \texttt{theta\_captured} resolve de forma elegante o problema de propagac\~ao de fase num pipeline multi-ciclo: $\theta$ \'e congelado no in\'icio do processamento de cada amostra, garantindo coer\^encia entre o resultado das MLPs e a rota\c{c}\~ao complexa final.
+
+    \item \textbf{Testabilidade:} A abordagem baseada em arquivos de vetores (\texttt{validation\_vectors\_final.txt} / \texttt{output\_results.txt}) permite valida\c{c}\~ao sistem\'atica contra refer\^encias geradas em Python/MATLAB sem modifica\c{c}\~ao do c\'odigo VHDL.
+\end{itemize}
+
+\subsection{Trabalhos Futuros}
+
+\begin{enumerate}
+    \item \textbf{S\'intese FPGA:} Executar s\'intese l\'ogica e \textit{place-and-route} na plataforma alvo (ex.: Xilinx Artix-7 ou Zynq), verificar fechamento de temporiza\c{c}\~ao e estimar utiliza\c{c}\~ao de recursos (LUTs, FFs, DSPs, BRAMs).
+    \item \textbf{Testes \textit{hardware-in-the-loop}:} Conectar o design sintetizado a um amplificador de pot\^encia real via placa de desenvolvimento e medir a redu\c{c}\~ao de ACPR (\textit{Adjacent Channel Power Ratio}) e EVM (\textit{Error Vector Magnitude}).
+    \item \textbf{Otimiza\c{c}\~ao de throughput:} Explorar pipelines profundos nas camadas densas para aumentar a taxa de processamento sem comprometer a \'area, caso o requisito de lat\^encia seja cr\'itico.
+    \item \textbf{Reconfigura\c{c}\~ao de pesos:} Adicionar interface AXI-Lite para carregar pesos via processador, permitindo adapta\c{c}\~ao do modelo DPD sem reprograma\c{c}\~ao do bitstream.
+\end{enumerate}
+
+\end{document}
