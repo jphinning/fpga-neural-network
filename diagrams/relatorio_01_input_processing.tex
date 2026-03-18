@@ -145,7 +145,7 @@ A arquitetura completa \'e dividida em tr\^es est\'agios de processamento sequen
     \item \textbf{Est\'agio~3 -- MLP e Sa\'ida:} Duas redes MLP paralelas processam o vetor de caracter\'isticas, seguidas de rota\c{c}\~ao de fase via multiplica\c{c}\~ao complexa.
 \end{enumerate}
 
-O plano de implementa\c{c}\~ao segue uma abordagem \textit{bottom-up}: construir e validar cada bloco individualmente antes de integr\'a-los. \textbf{Esta atividade documenta o projeto e valida\c{c}\~ao do \texttt{Input\_Processing\_Block}}, o bloco fundamental do Est\'agio~1.
+O plano de implementa\c{c}\~ao segue uma abordagem \textit{bottom-up}: construir e validar cada bloco individualmente antes de integr\'a-los. \textbf{Esta atividade documenta o projeto e valida\c{c}\~ao do \texttt{Input\_Processing\_Block}}, o primeiro bloco a ser implementado -- respons\'avel pela convers\~ao IQ$\,\rightarrow\,$polar e pelo desembrulhamento de fase.
 
 \begin{figure}[H]
 \centering
@@ -225,126 +225,6 @@ O plano de implementa\c{c}\~ao segue uma abordagem \textit{bottom-up}: construir
 }
 \caption{Arquitetura geral do sistema -- pipeline de tr\^es est\'agios. A fase~$\theta$ realiza \textit{bypass} do Est\'agio~2 via registrador de captura.}
 \label{fig:sistema_completo}
-\end{figure}
-
-
-% =======================================================================
-\section{Est\'agio 1: Processamento de Entrada}
-% =======================================================================
-
-O Est\'agio~1 (\texttt{Top\_NeuralNet\_S1}), mostrado na Figura~\ref{fig:estagio1}, converte o sinal IQ em uma representa\c{c}\~ao adequada para as camadas seguintes:
-
-\begin{enumerate}
-    \item O \texttt{Input\_Processing\_Block} usa o algoritmo CORDIC para obter o envelope $A(n)$ e a fase normalizada $\Delta\theta(n)$ a partir de $i_{in}$ e $q_{in}$.
-    \item Duas LUTs trigonom\'etricas calculam $\cos(\Delta\theta)$ e $\sin(\Delta\theta)$ com pipeline de 4~ciclos.
-    \item Um bloco de atraso de alinhamento (4~ciclos) sincroniza o envelope e $\theta$ com as sa\'idas das LUTs.
-    \item Tr\^es registradores de deslocamento mant\^em o hist\'orico de $M+1=6$ amostras por canal.
-\end{enumerate}
-
-\begin{figure}[H]
-\centering
-\resizebox{\textwidth}{!}{%
-\begin{tikzpicture}[node distance=1.2cm and 1.8cm, >=Stealth, thick, font=\sffamily]
-
-\tikzset{
-    io_node/.style={font=\sffamily\bfseries},
-    dot/.style={circle, fill=black, inner sep=0pt, minimum size=4pt}
-}
-
-\node[block, minimum width=4.0cm, minimum height=4.0cm, text width=3.5cm] (IPB) at (0,0) {%
-    \textbf{Input}\\
-    \textbf{Processing}\\
-    \textbf{Block}\\[3pt]
-    {\footnotesize CORDIC + Phase}\\
-    {\footnotesize Unwrap}\\
-    {\footnotesize (40 ciclos)}
-};
-
-\node[io_node] (Iin) at (-4.5, 1.0) {$i_{in}$};
-\node[io_node] (Qin) at (-4.5,-0.5) {$q_{in}$};
-\node[io_node] (Vin) at (-4.5,-2.0) {input\_valid};
-
-\draw[data arrow] (Iin) -- ($(IPB.west)+(0,1.0)$);
-\draw[data arrow] (Qin) -- ($(IPB.west)+(0,-0.2)$);
-\draw[ctrl arrow] (Vin) -- ($(IPB.west)+(0,-1.4)$);
-
-\coordinate (envOut)      at ($(IPB.east)+(0, 1.2)$);
-\coordinate (thetaNormOut) at ($(IPB.east)+(0, 0.0)$);
-\coordinate (phaseWOut)   at ($(IPB.east)+(0,-1.2)$);
-\coordinate (enRawOut)    at ($(IPB.south)+(0.5,0)$);
-
-\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_C) at (5.5, 1.5){%
-    \textbf{LUT\_Trig}\\{\footnotesize (cosseno)}\\{\footnotesize $\cos(\Delta\theta)$}
-};
-\node[block, minimum width=2.8cm, minimum height=1.5cm, text width=2.4cm] (LUT_S) at (5.5,-1.5){%
-    \textbf{LUT\_Trig}\\{\footnotesize (seno)}\\{\footnotesize $\sin(\Delta\theta)$}
-};
-
-\draw[data arrow] (thetaNormOut) -- ++(1.5,0) coordinate (thetaFork);
-\node[dot] at (thetaFork) {};
-\draw[data arrow] (thetaFork) |- (LUT_C.west) node[signal,pos=0.3,above]{\scriptsize $\theta_{norm}$};
-\draw[data arrow] (thetaFork) |- (LUT_S.west);
-
-\node[small block, minimum width=2.8cm, minimum height=1.8cm, text width=2.4cm] (Delay) at (5.5,4.5){%
-    \textbf{Atraso de}\\
-    \textbf{Alinhamento}\\
-    {\scriptsize 4 ciclos (LUT)}
-};
-\draw[data arrow] (envOut) -- ++(1.5,0) |- ($(Delay.west)+(0,0.3)$)
-    node[signal,pos=0.2,above]{\scriptsize envelope\_s};
-\draw[data arrow] (phaseWOut) -- ++(0.8,0) |- ($(Delay.west)+(0,-0.3)$)
-    node[signal,pos=0.15,below]{\scriptsize phase\_wrapped};
-
-\node[small block, minimum width=2.8cm, minimum height=0.8cm, text width=2.4cm] (EnDelay) at (5.5,-4.0){%
-    \textbf{Atraso Enable}\\{\scriptsize 4 ciclos}
-};
-\draw[ctrl arrow] (enRawOut) |- (EnDelay.west) node[signal,pos=0.3,below]{\scriptsize en\_raw};
-
-\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_E) at (11.5, 4.5){%
-    \textbf{Shift\_Reg}\\{\footnotesize (envelope, $M\!=\!5$)}
-};
-\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_C) at (11.5, 1.5){%
-    \textbf{Shift\_Reg}\\{\footnotesize (cosseno, $M\!=\!5$)}
-};
-\node[block, minimum width=3.2cm, minimum height=1.3cm, text width=2.8cm] (SR_S) at (11.5,-1.5){%
-    \textbf{Shift\_Reg}\\{\footnotesize (seno, $M\!=\!5$)}
-};
-
-\draw[data arrow] (Delay.east) -- ++(0.5,0) |- (SR_E.west)
-    node[signal,pos=0.4,above]{\scriptsize env\_aligned};
-\draw[data arrow] (LUT_C.east) -- (SR_C.west) node[signal,midway,above]{\scriptsize cos\_dp};
-\draw[data arrow] (LUT_S.east) -- (SR_S.west) node[signal,midway,above]{\scriptsize sin\_dp};
-
-\coordinate (enAligned) at ($(EnDelay.east)+(1.5,0)$);
-\draw[ctrl arrow] (EnDelay.east) -- (enAligned);
-\node[dot] at (enAligned) {};
-\draw[ctrl arrow] (enAligned) |- ($(SR_E.south)+(-0.5,0)$) node[signal,pos=0.1,right]{\scriptsize wr\_en};
-\draw[ctrl arrow] (enAligned) |- ($(SR_C.south)+(-0.5,0)$);
-\draw[ctrl arrow] (enAligned) |- ($(SR_S.south)+(-0.5,0)$);
-
-\node[io_node, right=1.5cm of SR_E] (OutE) {buf\_env\_out$[0\!:\!5]$};
-\node[io_node, right=1.5cm of SR_C] (OutC) {buf\_cos\_out$[0\!:\!5]$};
-\node[io_node, right=1.5cm of SR_S] (OutS) {buf\_sin\_out$[0\!:\!5]$};
-
-\draw[data arrow] (SR_E.east) -- (OutE) node[bus,midway,below]{$/6$};
-\draw[data arrow] (SR_C.east) -- (OutC) node[bus,midway,below]{$/6$};
-\draw[data arrow] (SR_S.east) -- (OutS) node[bus,midway,below]{$/6$};
-
-% theta_unwrapped_out -- acima da linha do SR_E para evitar sobreposição
-\node[io_node] (OutTheta) at ($(SR_E.north)+(3.5,1.8)$) {theta\_unwrapped\_out};
-\draw[data arrow] ($(Delay.east)+(0,-0.3)$) -- ++(2.0,0) coordinate (ThetaMid);
-\draw[data arrow] (ThetaMid) -- (ThetaMid |- OutTheta) -- (OutTheta);
-\node[signal] at ($(ThetaMid)+(0,0.3)$) {\scriptsize $\theta_{aligned}$};
-
-\node[io_node] (OutValid) at ($(enAligned)+(4.5,0)$) {stage\_valid};
-\draw[ctrl arrow] (enAligned) -- ++(0.5,0) |- (OutValid);
-
-\node[entity border, fit=(Iin)(Vin)(OutE)(OutS)(OutTheta)(OutValid)(Delay)(EnDelay), inner sep=15pt] {};
-
-\end{tikzpicture}%
-}
-\caption{Diagrama de blocos do Est\'agio~1: convers\~ao IQ$\,\rightarrow\,$polar, LUTs trigonom\'etricas e buffers deslizantes. O atraso de alinhamento compensa a lat\^encia de 4~ciclos das LUTs.}
-\label{fig:estagio1}
 \end{figure}
 
 
@@ -778,9 +658,8 @@ Todos os tr\^es testes foram aprovados. O erro de $-1$~LSB no Teste~2 \'e ineren
 % =======================================================================
 
 \begin{enumerate}
-    \item Implementar e validar as LUTs trigonom\'etricas (\texttt{LUT\_Trig}) -- pipeline de 4~est\'agios.
-    \item Implementar os registradores de deslocamento (\texttt{Shift\_Register}).
-    \item Integrar os blocos no Est\'agio~1 (\texttt{Top\_NeuralNet\_S1}) e validar o conjunto.
+    \item Implementar e validar as LUTs trigonom\'etricas (\texttt{LUT\_Trig}) -- pipeline de 4~est\'agios com interpola\c{c}\~ao linear.
+    \item Implementar e validar os registradores de deslocamento (\texttt{Shift\_Register}) -- janela deslizante de $M+1=6$ amostras.
 \end{enumerate}
 
 \end{document}
