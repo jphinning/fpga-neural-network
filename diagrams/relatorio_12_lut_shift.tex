@@ -107,6 +107,31 @@
     framexleftmargin=0.5em,
 }
 
+\definecolor{pykeyword}{RGB}{0, 100, 0}
+\definecolor{pystring}{RGB}{160, 0, 0}
+\definecolor{pycomment}{RGB}{100, 100, 100}
+\definecolor{pybg}{RGB}{252, 252, 248}
+
+\lstdefinestyle{pystyle}{
+    language=Python,
+    backgroundcolor=\color{pybg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{pykeyword}\bfseries,
+    stringstyle=\color{pystring},
+    commentstyle=\color{pycomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+}
+
 % ========================================================================
 % Cabeçalho
 % ========================================================================
@@ -157,6 +182,117 @@ O bloco de atraso de alinhamento presente no \texttt{Top\_NeuralNet\_S1} sincron
 e a fase com as sa\'idas das LUTs antes de escrever nos registradores de deslocamento, garantindo
 coer\^encia temporal entre os tr\^es canais.
 
+
+% =======================================================================
+\section{Gera\c{c}\~ao do \texttt{pkg\_model\_constants.vhd}}
+% =======================================================================
+
+O arquivo \texttt{pkg\_model\_constants.vhd} \'e o elo entre o modelo Python e o hardware VHDL:
+ele cont\'em todas as constantes (pesos e LUTs) em formato Q16.16, prontas para serem lidas
+diretamente pelos blocos VHDL sem nenhuma convers\~ao em tempo de execu\c{c}\~ao.
+A gera\c{c}\~ao \'e realizada por um script Python que (a)~extrai os pesos treinados do modelo
+PyTorch e (b)~amostra as fun\c{c}\~oes trigonom\'etricas e n\~ao-lineares para criar as LUTs.
+
+\textbf{Nesta atividade cobrimos apenas as LUTs.} A extra\c{c}\~ao e explica\c{c}\~ao dos pesos
+treinados ser\'a detalhada em uma atividade futura, ap\'os a valida\c{c}\~ao da camada
+convolucional e do MLP.
+
+\subsection{Contexto: rede neural em Python}
+
+A rede neural foi desenvolvida e treinada em PyTorch (\texttt{Conv2dEnvelopePhaseNNPyTorch})
+antes de qualquer implementa\c{c}\~ao VHDL. O modelo recebe o tensor de entrada
+$(N,\,1,\,3,\,M\!+\!1)$ -- tr\^es canais (envelope, $\cos\Delta\theta$, $\sin\Delta\theta$)
+com $M+1 = 6$ amostras de hist\'orico -- e produz a predi\c{c}\~ao complexa $\hat{y}(n)$ via:
+\begin{enumerate}
+    \item Convolução 1D com \texttt{conv\_num\_filters}$=16$ filtros e
+          \texttt{conv\_kernel\_size\_i}$=4$;
+    \item ReLU + \textit{average pooling} global $\to$ vetor de 16~caracter\'isticas;
+    \item Dois MLPs paralelos (ramo real e imagin\'ario), cada um com camadas
+          $16 \to 25 \to 25 \to 1$ e ativa\c{c}\~ao tanh;
+    \item Rota\c{c}\~ao de fase: $\hat{y}(n) = \hat{s}(n)\cdot e^{j\theta(n)}$.
+\end{enumerate}
+
+A valida\c{c}\~ao em ponto fixo foi feita em Python por um motor de infer\^encia
+\textit{bit-true} (\texttt{InferenceEngineFixed}) que simula o hardware com inteiros de 64~bits,
+confirmando que a precis\~ao Q16.16 \'e suficiente antes de escrever qualquer VHDL.
+
+\subsection{Fun\c{c}\~ao \texttt{create\_lut\_fixed}}
+
+A fun\c{c}\~ao \texttt{create\_lut\_fixed} amostra uma fun\c{c}\~ao $f$ em $N = 1024$ pontos
+igualmente espa\c{c}ados no intervalo $[x_{\min},\, x_{\max}]$, armazena os valores $y_i = f(x_i)$
+e as inclina\c{c}\~oes $\text{slope}_i = (y_{i+1} - y_i)/\Delta x$ -- tudo convertido para Q16.16
+(\textit{i.e.}, multiplicado por $2^{16} = 65536$ e arredondado para inteiro).
+
+\begin{lstlisting}[style=pystyle,
+    caption={Gera\c{c}\~ao das LUTs trigonometricas e de tanh em ponto fixo.},
+    label={lst:create_luts}]
+def create_luts_fixed():
+    luts = {}
+
+    # Tanh LUT: dominio [-2, 2], 1024 entradas
+    # (saturacao fora da faixa e tratada por clamp no VHDL)
+    tanh_x, tanh_y, tanh_slopes, tanh_step = create_lut_fixed(
+        np.tanh, -2.0, 2.0, 1024
+    )
+    luts["tanh"] = {"x": tanh_x, "y": tanh_y, "slopes": tanh_slopes}
+
+    # Cos LUT: dominio [-4, 4] (margem alem de [-pi, pi])
+    cos_x, cos_y, cos_slopes, cos_step = create_lut_fixed(
+        np.cos, -4.0, 4.0, 1024
+    )
+    luts["cos"] = {"x": cos_x, "y": cos_y, "slopes": cos_slopes}
+
+    # Sin LUT: dominio [-4, 4]
+    sin_x, sin_y, sin_slopes, sin_step = create_lut_fixed(
+        np.sin, -4.0, 4.0, 1024
+    )
+    luts["sin"] = {"x": sin_x, "y": sin_y, "slopes": sin_slopes}
+
+    return luts
+\end{lstlisting}
+
+\subsection{Por que \texttt{OFFSET\_VAL} = 262144 e como o endere\c{c}o \'e calculado}
+
+As LUTs de seno e cosseno cobrem o intervalo $[-4{,}0;\,+4{,}0]$. Em Q16.16, $4{,}0$
+corresponde a $4 \times 65536 = 262144$, portanto:
+
+\[
+    \texttt{OFFSET\_VAL} = 262144 \quad (\equiv 4{,}0 \text{ em Q16.16})
+\]
+
+Somando o offset ao argumento $x_{in} \in [-4{,}0;\,+4{,}0]$ obt\'em-se
+$\texttt{addr} = x_{in} + \texttt{OFFSET\_VAL} \in [0;\,8{,}0]$, que \'e sempre positivo
+e pode ser indexado diretamente como inteiro sem sinal.
+
+Com 1024~entradas cobrindo $8{,}0$ unidades, cada entrada cobre um passo de:
+\[
+    \Delta x = \frac{8{,}0}{1024} = \frac{8 \times 65536}{1024} = 512 = 2^{9} \text{ (em Q16.16)}
+\]
+
+Logo, o \'indice inteiro \'e simplesmente:
+\[
+    \texttt{idx} = \lfloor \texttt{addr} / 512 \rfloor
+               = \texttt{addr}[18\!:\!9]
+               \quad\in [0,\,1023]
+\]
+
+E a fra\c{c}\~ao dentro do intervalo (usada na interpola\c{c}\~ao) \'e:
+\[
+    \delta_x = \texttt{addr} \bmod 512
+             = \texttt{addr}[8\!:\!0]
+             = \texttt{addr} \;\&\; \texttt{0x1FF}
+\]
+
+Isso explica diretamente as express\~oes no Est\'agio~1 e Est\'agio~2 do \texttt{LUT\_Trig}:
+\texttt{idx = addr[18:9]} e \texttt{delta\_x = addr\_norm\_d1 \& 0x1FF} n\~ao s\~ao
+"n\'umeros m\'agicos" -- s\~ao consequ\^encias diretas dos par\^ametros $N = 1024$ e
+$x_{\max} = 4{,}0$ escolhidos no script Python.
+
+\medskip
+\noindent\textbf{Nota:} O \texttt{LUT\_Tanh} (usado no MLP) segue a mesma l\'ogica, por\'em
+com intervalo $[-2{,}0;\,+2{,}0]$: $\texttt{OFFSET\_VAL} = 2 \times 65536 = 131072$ e
+passo $\Delta x = 4{,}0/1024 \times 65536 = 256 = 2^{8}$, resultando em
+\texttt{idx = addr[17:8]}.
 
 % =======================================================================
 \section{\texttt{LUT\_Trig} -- LUT Trigonom\'etrica com Pipeline}
