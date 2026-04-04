@@ -36,6 +36,13 @@ architecture Behavioral of LUT_Tanh is
     -- Pipeline para alinhar y0 com o resultado da multiplicação
     signal y0_d1 : data_t := (others => '0');
 
+    -- Flags de saturação propagadas pelos 3 ciclos restantes do pipeline
+    -- sat_*_s1 é registrado no fim do Estágio 1 (clk N)
+    -- sat_*_s2 chega no fim do Estágio 2 (clk N+1)
+    -- sat_*_s3 chega no fim do Estágio 3 (clk N+2) e é usado no Estágio 4 (clk N+3)
+    signal sat_pos_s1, sat_pos_s2, sat_pos_s3 : std_logic := '0';
+    signal sat_neg_s1, sat_neg_s2, sat_neg_s3 : std_logic := '0';
+
 begin
 
     process(clk)
@@ -52,53 +59,59 @@ begin
                 delta_x <= (others => '0');
                 prod_long <= (others => '0');
                 delta_y <= (others => '0');
+                sat_pos_s1 <= '0'; sat_pos_s2 <= '0'; sat_pos_s3 <= '0';
+                sat_neg_s1 <= '0'; sat_neg_s2 <= '0'; sat_neg_s3 <= '0';
             else
-                -- ESTÁGIO 1: Endereçamento com Proteção de Range (Anti-Wrap)
-                
+                -- ESTÁGIO 1: Endereçamento com Proteção de Range
                 if x_in >= OFFSET_VAL then
-                    -- Saturação Positiva (x >= 2.0)
+                    -- Fora do range positivo: sinaliza saturação, index não importa
                     index <= 1023;
-                    addr_norm_d1 <= (others => '0'); -- Delta zero
-                    
+                    addr_norm_d1 <= (others => '0');
+                    sat_pos_s1 <= '1';
+                    sat_neg_s1 <= '0';
+
                 elsif x_in < -OFFSET_VAL then
-                    -- Saturação Negativa (x < -2.0)
+                    -- Fora do range negativo: sinaliza saturação
                     index <= 0;
-                    addr_norm_d1 <= (others => '0'); -- Delta zero
-                    
+                    addr_norm_d1 <= (others => '0');
+                    sat_pos_s1 <= '0';
+                    sat_neg_s1 <= '1';
+
                 else
                     -- Operação Normal
                     address_norm := x_in + OFFSET_VAL;
-                    
-                    -- Slice / Shift (>> 8) para Step de 256
                     idx_calc := to_integer(unsigned(address_norm(17 downto 8)));
-                    
                     if idx_calc < 0 then index <= 0;
                     elsif idx_calc > 1023 then index <= 1023;
                     else index <= idx_calc;
                     end if;
-                    
-                    -- Guarda como Unsigned para facilitar máscara
                     addr_norm_d1 <= unsigned(address_norm);
+                    sat_pos_s1 <= '0';
+                    sat_neg_s1 <= '0';
                 end if;
 
-                -- ESTÁGIO 2: Leitura da ROM
+                -- ESTÁGIO 2: Leitura da ROM + propagação do flag
                 y0    <= LUT_TANH_Y(index);
                 slope <= LUT_TANH_SLOPES(index);
-                
-                -- ESTÁGIO 3: Cálculo
-                -- Mascara 8 bits inferiores (0xFF)
-                -- Converte de volta para signed para a multiplicação
                 delta_x <= signed(addr_norm_d1 and x"000000FF");
-                
-                -- Multiplicação
+                sat_pos_s2 <= sat_pos_s1;
+                sat_neg_s2 <= sat_neg_s1;
+
+                -- ESTÁGIO 3: Multiplicação + propagação do flag
                 prod_long <= delta_x * slope;
-                
-                -- Delay para alinhar y0
-                y0_d1 <= y0;
-                
-                -- ESTÁGIO 4: Saída
+                y0_d1     <= y0;
+                sat_pos_s3 <= sat_pos_s2;
+                sat_neg_s3 <= sat_neg_s2;
+
+                -- ESTÁGIO 4: Saída — usa flag propagado para bypassar LUT
                 delta_y <= prod_long(47 downto 16);
-                y_out <= y0_d1 + delta_y;
+                if sat_pos_s3 = '1' then
+                    y_out <= to_signed(65535, DATA_WIDTH);   -- +1.0 em Q16.16
+                elsif sat_neg_s3 = '1' then
+                    y_out <= to_signed(-65535, DATA_WIDTH);  -- -1.0 em Q16.16
+                else
+                    y_out <= y0_d1 + delta_y;
+                end if;
                 
             end if;
         end if;
