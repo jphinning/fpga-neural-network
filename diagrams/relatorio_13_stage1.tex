@@ -107,6 +107,31 @@
     framexleftmargin=0.5em,
 }
 
+\definecolor{pykeyword}{RGB}{0, 100, 0}
+\definecolor{pystring}{RGB}{160, 0, 0}
+\definecolor{pycomment}{RGB}{100, 100, 100}
+\definecolor{pybg}{RGB}{252, 252, 248}
+
+\lstdefinestyle{pystyle}{
+    language=Python,
+    backgroundcolor=\color{pybg},
+    basicstyle=\ttfamily\scriptsize,
+    keywordstyle=\color{pykeyword}\bfseries,
+    stringstyle=\color{pystring},
+    commentstyle=\color{pycomment}\itshape,
+    numberstyle=\tiny\color{vhdlnumber},
+    numbers=left,
+    numbersep=5pt,
+    frame=single,
+    rulecolor=\color{black!30},
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false,
+    captionpos=b,
+    xleftmargin=2em,
+    framexleftmargin=1.5em,
+}
+
 % ========================================================================
 % Cabeçalho
 % ========================================================================
@@ -172,69 +197,24 @@ mostrando a interliga\c{c}\~ao entre os sub-blocos e os caminhos dos sinais de d
 \label{sec:latency}
 % =======================================================================
 
-O projeto do Est\'agio~1 exige o gerenciamento cuidadoso de dois valores de lat\^encia
-distintos que precisam ser reconciliados antes que os dados sejam escritos nos
-registradores de deslocamento.
-
-\subsection{Origem das Lat\^encias}
-
-\begin{enumerate}
-    \item \textbf{Lat\^encia do \texttt{Input\_Processing\_Block} (40~ciclos):} O IP core CORDIC
-          opera de forma iterativa, necessitando de 40~bordas de subida de rel\'ogio para
-          completar a convers\~ao retangular--polar. O \texttt{Input\_Processing\_Block} propaga
-          um registrador de deslocamento de 40~bits junto com o sinal \texttt{input\_valid} para
-          gerar \texttt{buffers\_enable} exatamente quando \texttt{envelope\_out},
-          \texttt{phase\_wrapped\_out} e \texttt{theta\_norm\_out} s\~ao v\'alidos.
-
-    \item \textbf{Lat\^encia das \texttt{LUT\_Trig} (4~ciclos):} Cada inst\^ancia de
-          \texttt{LUT\_Trig} possui um pipeline de 4~est\'agios registrados. Portanto, quando
-          \texttt{theta\_norm\_out} \'e v\'alido (indicado por \texttt{buffers\_enable}), as
-          sa\'idas \texttt{cos\_dp} e \texttt{sin\_dp} s\'o ficam v\'alidas 4~ciclos ap\'os.
-\end{enumerate}
-
-\subsection{Solu\c{c}\~ao: Linhas de Atraso de 4~Ciclos}
-
-Para sincronizar o envelope e o controle de escrita com as sa\'idas das LUTs, o
-\texttt{Top\_NeuralNet\_S1} implementa tr\^es linhas de atraso paralelas de
-\texttt{LUT\_LATENCY} $= 4$~ciclos:
+O \texttt{Input\_Processing\_Block} entrega dados v\'alidos com 40~ciclos de lat\^encia
+(CORDIC iterativo). As duas inst\^ancias de \texttt{LUT\_Trig} adicionam mais 4~ciclos
+de pipeline. Para que envelope, cosseno e seno cheguem nos \texttt{Shift\_Register} no
+mesmo instante, o \texttt{Top\_NeuralNet\_S1} implementa tr\^es linhas de atraso
+paralelas de \texttt{LUT\_LATENCY} $= 4$~ciclos:
 
 \begin{itemize}
-    \item \textbf{\texttt{enable\_delay}:} \texttt{std\_logic\_vector(0 to 3)} -- atrasa
-          \texttt{buffers\_enable\_raw} por 4~ciclos. O bit final, \texttt{enable\_delay(3)},
-          torna-se \texttt{buffers\_write\_en} e habilita os tr\^es \texttt{Shift\_Register}
-          simultaneamente, garantindo que cos, sin e envelope cheguem todos no mesmo instante.
+    \item \textbf{\texttt{enable\_delay(0 to 3)}:} atrasa \texttt{buffers\_enable} por
+          4~ciclos; o \'ultimo elemento \texttt{enable\_delay(3)} habilita os tr\^es
+          \texttt{Shift\_Register} simultaneamente.
 
-    \item \textbf{\texttt{env\_delay}:} \texttt{data\_array\_t(0 to 3)} -- atrasa
-          \texttt{envelope\_s} por 4~ciclos, produzindo \texttt{envelope\_aligned}.
+    \item \textbf{\texttt{env\_delay(0 to 3)}:} atrasa \texttt{envelope\_s} por 4~ciclos,
+          produzindo \texttt{envelope\_aligned}.
 
-    \item \textbf{\texttt{theta\_delay}:} \texttt{data\_array\_t(0 to 3)} -- atrasa
-          \texttt{phase\_wrapped} por 4~ciclos, produzindo \texttt{theta\_aligned}.
-          Este valor \'e exposto como \texttt{theta\_unwrapped\_out} para o backend.
+    \item \textbf{\texttt{theta\_delay(0 to 3)}:} atrasa \texttt{phase\_wrapped} por
+          4~ciclos, produzindo \texttt{theta\_aligned} -- exposto como
+          \texttt{theta\_unwrapped\_out} para o backend.
 \end{itemize}
-
-\subsection{Por que \texttt{phase\_wrapped} e N\~ao \texttt{theta\_unwrapped}?}
-
-Uma decis\~ao de projeto cr\'itica \'e a escolha de \textbf{\texttt{phase\_wrapped}} (e n\~ao
-\texttt{theta\_unwrapped}) para alimentar a linha de atraso \texttt{theta\_delay}.
-
-O sinal \texttt{theta\_unwrapped\_out} \'e uma fase acumulada que cresce indefinidamente ao
-longo do tempo. Seus valores t\'ipicos em opera\c{c}\~ao real excedem facilmente o intervalo
-$[-\pi,+\pi]$, ultrapassando as fronteiras da tabela ROM de 1024~entradas do \texttt{LUT\_Trig}.
-Se \texttt{theta\_unwrapped} fosse enviado para a LUT, o \'indice calculado no Est\'agio~1
-da LUT ficaria fora dos limites, produzindo resultados incorretos.
-
-O sinal \texttt{phase\_wrapped}, por outro lado, \'e a fase bruta do CORDIC normalizada
-para $[-\pi,+\pi]$, sempre dentro da faixa de opera\c{c}\~ao da LUT. Por isso, as LUTs
-recebem \texttt{theta\_norm\_out} ($= \Delta\theta$, tamb\'em em $[-\pi,+\pi]$), e a sa\'ida
-\texttt{theta\_unwrapped\_out} do \texttt{Top\_NeuralNet\_S1} \'e na pr\'atica
-\texttt{phase\_wrapped} alinhado --- fornecendo ao backend a fase angular correta para a
-rota\c{c}\~ao complexa final, sem risco de transbordamento de \'indice.
-
-O comentário no código VHDL documenta explicitamente esta decisão:
-\begin{center}
-\texttt{-- [CORREÇÃO] Shift Theta usando phase\_wrapped (Raw -PI a +PI)}\\
-\texttt{-- Não usar theta\_unwrapped aqui, pois ele estoura a LUT!}
-\end{center}
 
 
 % =======================================================================
@@ -381,30 +361,57 @@ end Behavioral;
 \section{Testbench e Resultados}
 % =======================================================================
 
-\subsection{Abordagem Baseada em Arquivo de Vetores}
+\subsection{Gera\c{c}\~ao dos Vetores de Refer\^encia}
 
-O testbench do \texttt{Top\_NeuralNet\_S1} adota uma abordagem orientada a arquivos para
-permitir valida\c{c}\~ao com m\'ultiplas amostras reais extraídas de refer\^encia Python.
-O arquivo \texttt{vectors\_s1\_input.txt} \'e lido linha a linha durante a simula\c{c}\~ao;
-cada linha cont\'em cinco valores inteiros (em Q16.16):
+Os vetores de teste s\~ao gerados pelo script Python \texttt{generate\_vectors.py}, que
+executa o motor de infer\^encia \textit{bit-true} (\texttt{InferenceEngineFixed}) sobre
+amostras reais do amplificador e registra os valores intermedi\'arios em Q16.16. Para o
+Est\'agio~1, o arquivo \texttt{vectors\_s1\_input.txt} \'e produzido com o formato:
 
 \begin{center}
-\texttt{v\_I \quad v\_Q \quad v\_EXP\_ENV \quad v\_EXP\_COS \quad v\_EXP\_SIN}
+\texttt{i\_in \quad q\_in \quad env\_head \quad cos\_head \quad sin\_head}
 \end{center}
 
-Para cada linha, o testbench:
+onde \texttt{env\_head}, \texttt{cos\_head} e \texttt{sin\_head} s\~ao as cabe\c{c}as
+atuais dos buffers do motor Python (posi\c{c}\~ao~0 de cada canal).
+
+\begin{lstlisting}[style=pystyle,
+    caption={Trecho do \texttt{generate\_vectors.py}: gera\c{c}\~ao do arquivo de vetores do Est\'agio~1.},
+    label={lst:genvec}]
+for i in range(len(input_data)):
+    if i >= limit: break
+    x_val = input_data[i]
+
+    y_pred, debug = engine.predict_sample(x_val)
+    if y_pred is None: continue  # descarta warm-up (M primeiras amostras)
+
+    i_in    = int(to_fixed(x_val.real))
+    q_in    = int(to_fixed(x_val.imag))
+    env_head = engine.env_buffer[0]
+    cos_head = engine.cos_buffer[0]
+    sin_head = engine.sin_buffer[0]
+
+    f_s1.write(f"{i_in} {q_in} {env_head} {cos_head} {sin_head}\n")
+\end{lstlisting}
+
+O mesmo script produz tamb\'em \texttt{vectors\_s2\_conv.txt} e \texttt{vectors\_s3\_mlp.txt}
+para valida\c{c}\~ao dos Est\'agios~2 e~3 nas atividades seguintes.
+
+\subsection{Abordagem do Testbench}
+
+O testbench l\^e \texttt{vectors\_s1\_input.txt} linha a linha durante a simula\c{c}\~ao.
+Para cada linha:
 \begin{enumerate}
-    \item Aplica $(i_{in}, q_{in})$ ao est\'agio e aguarda \texttt{stage\_valid = '1'}.
+    \item Aplica $(i_{in},\, q_{in})$ ao est\'agio e aguarda \texttt{stage\_valid = '1'}.
     \item L\^e \texttt{buf\_env\_out(0)}, \texttt{buf\_cos\_out(0)} e \texttt{buf\_sin\_out(0)}.
-    \item Compara os valores obtidos com os esperados da \textit{amostra anterior} (pois o pipeline
-          introduz um ciclo adicional de lat\^encia de preenchimento entre a escrita e a leitura).
+    \item Compara com os valores esperados da \textit{amostra anterior} (lat\^encia de
+          preenchimento do \texttt{Shift\_Register}).
     \item Aceita erros de at\'e $\pm 500$~LSB, tolerando imprecis\~oes acumuladas da cadeia
           CORDIC + LUT + aritm\'etica Q16.16.
 \end{enumerate}
 
-A \textbf{primeira amostra \'e ignorada} na compara\c{c}\~ao (\textit{pipeline fill}):
-nela o buffer \texttt{Shift\_Register} ainda n\~ao foi preenchido com dados v\'alidos.
-A partir da segunda amostra, o dado lido \'e o resultado correspondente \`a amostra anterior.
+A primeira amostra \'e ignorada na compara\c{c}\~ao (\textit{pipeline fill}): o
+\texttt{Shift\_Register} ainda n\~ao cont\'em dados v\'alidos.
 
 \begin{lstlisting}[style=vhdlstyle,
     caption={Testbench do \texttt{Top\_NeuralNet\_S1} com leitura de arquivo de vetores.},
