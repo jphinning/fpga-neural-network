@@ -449,35 +449,40 @@ O testbench \texttt{NeuralNet\_Complete\_tb} implementa uma valida\c{c}\~ao comp
 
 A toler\^ancia de compara\c{c}\~ao \'e \texttt{TOLERANCE = 1000}~LSB, equivalente a $\approx 0{,}015$ em valor real Q16.16. Esse limiar acomoda os erros acumulados de quantiza\c{c}\~ao ao longo de todos os blocos da cadeia (CORDIC, LUTs trigonom\'etricas, convolv\c{c}\~ao, MLPs, multiplica\c{c}\~ao complexa).
 
-As primeiras \texttt{WARMUP\_COUNT = 7} amostras s\~ao enviadas ao DUT mas n\~ao comparadas com valores esperados (fase de aquecimento). A partir da amostra~8, o testbench entra no modo de estado estacion\'ario e compara cada \texttt{output\_valid} com o valor esperado da itera\c{c}\~ao \textbf{anterior} (\texttt{v\_I\_EXP\_PREV}), refletindo o atraso de um ciclo de processamento inerente ao pipeline.
+As primeiras \texttt{WARMUP\_COUNT = 11} amostras s\~ao enviadas ao DUT mas n\~ao comparadas com valores esperados (fase de aquecimento: 5~amostras de buffer + atrasos de pipeline observados na simula\c{c}\~ao). A partir da amostra~12, o testbench entra no modo de estado estacion\'ario e compara cada \texttt{output\_valid} com o valor esperado da itera\c{c}\~ao \textbf{anterior} (\texttt{v\_I\_EXP\_PREV}), refletindo o atraso de um ciclo de processamento inerente ao pipeline.
 
 \subsection{Log de Simula\c{c}\~ao}
 
 \begin{lstlisting}[style=logstyle,
     caption={Log do ISim -- valida\c{c}\~ao \textit{end-to-end} do \texttt{NeuralNet\_Complete}.},
     label={lst:log_top}]
-at 100 ns:   Note: --- SIMULATION STARTED ---
-at 200 ns:   Note: Sample 1 (Warm-up): Filling pipeline.
-at 220 ns:   Note: Sample 2 (Warm-up): Filling pipeline.
-at 240 ns:   Note: Sample 3 (Warm-up): Filling pipeline.
-at 260 ns:   Note: Sample 4 (Warm-up): Filling pipeline.
-at 280 ns:   Note: Sample 5 (Warm-up): Filling pipeline.
-at 300 ns:   Note: Sample 6 (Warm-up): Filling pipeline.
-at 320 ns:   Note: Sample 7 (Warm-up): Filling pipeline.
-at 4800 ns:  Note: Sample 8 PASS: I_out=52134 (Exp:52200)
-at 9300 ns:  Note: Sample 9 PASS: I_out=-31800 (Exp:-31750)
-at 13800 ns: Note: Sample 10 PASS: I_out=68900 (Exp:69100)
-at 18300 ns: Note: Sample 11 PASS: I_out=41200 (Exp:41450)
-at 22800 ns: Note: Sample 12 PASS: I_out=-18300 (Exp:-18100)
-at 22800 ns: Note: --- SIMULATION FINISHED ---
-at 22800 ns: Note: Output results written to: output_results.txt
+at 100 ns:    Note: --- SIMULATION STARTED ---
+at 200 ns:    Note: Sample 1  (Warm-up): Filling pipeline.
+at 220 ns:    Note: Sample 2  (Warm-up): Filling pipeline.
+at 240 ns:    Note: Sample 3  (Warm-up): Filling pipeline.
+at 260 ns:    Note: Sample 4  (Warm-up): Filling pipeline.
+at 280 ns:    Note: Sample 5  (Warm-up): Filling pipeline.
+at 300 ns:    Note: Sample 6  (Warm-up): Filling pipeline.
+at 320 ns:    Note: Sample 7  (Warm-up): Filling pipeline.
+at 340 ns:    Note: Sample 8  (Warm-up): Filling pipeline.
+at 360 ns:    Note: Sample 9  (Warm-up): Filling pipeline.
+at 380 ns:    Note: Sample 10 (Warm-up): Filling pipeline.
+at 400 ns:    Note: Sample 11 (Warm-up): Filling pipeline.
+at 4900 ns:   Note: Sample 12 PASS: I_out=-50126 (Exp:-49695), Q_out=14779 (Exp:14687)
+at 9400 ns:   Note: Sample 13 PASS: I_out=-49177 (Exp:-48872), Q_out=17369 (Exp:17420)
+at 13900 ns:  Note: Sample 14 PASS: I_out=-48276 (Exp:-47962), Q_out=18705 (Exp:18845)
+at 18400 ns:  Note: Sample 15 PASS: I_out=-48248 (Exp:-47824), Q_out=18623 (Exp:18726)
+at 22900 ns:  Note: Sample 16 PASS: I_out=-48573 (Exp:-48423), Q_out=17147 (Exp:17262)
+at 27400 ns:  Note: Sample 17 PASS: I_out=-50369 (Exp:-49760), Q_out=14156 (Exp:14222)
+at 27400 ns:  Note: --- SIMULATION FINISHED ---
+at 27400 ns:  Note: Output results written to: output_results.txt
 \end{lstlisting}
 
 \subsection{Tabela de Resultados}
 
 \begin{table}[H]
 \centering
-\caption{Resultados de valida\c{c}\~ao \textit{end-to-end} -- 5 amostras em estado estacion\'ario.}
+\caption{Resultados de valida\c{c}\~ao \textit{end-to-end} -- 6 amostras em estado estacion\'ario.}
 \small
 \begin{tabular}{lccccccc}
 \hline
@@ -486,19 +491,20 @@ at 22800 ns: Note: Output results written to: output_results.txt
 \textbf{Q\_out obtido} & \textbf{Q\_out esperado} & \textbf{Erro Q} &
 \textbf{Status} \\
 \hline
-8  &  52134 &  52200 &   66 & $-12400$ & $-12350$ &  50 & PASS \\
-9  & $-31800$ & $-31750$ &  50 &  24600 &  24500 & 100 & PASS \\
-10 &  68900 &  69100 & 200 & $-8700$ & $-8800$ & 100 & PASS \\
-11 &  41200 &  41450 & 250 &  31100 &  31300 & 200 & PASS \\
-12 & $-18300$ & $-18100$ & 200 &  55600 &  55400 & 200 & PASS \\
+12 & $-50126$ & $-49695$ & 431 & 14779 & 14687 &  92 & PASS \\
+13 & $-49177$ & $-48872$ & 305 & 17369 & 17420 &  51 & PASS \\
+14 & $-48276$ & $-47962$ & 314 & 18705 & 18845 & 140 & PASS \\
+15 & $-48248$ & $-47824$ & 424 & 18623 & 18726 & 103 & PASS \\
+16 & $-48573$ & $-48423$ & 150 & 17147 & 17262 & 115 & PASS \\
+17 & $-50369$ & $-49760$ & 609 & 14156 & 14222 &  66 & PASS \\
 \hline
-\multicolumn{6}{r}{\textbf{Erro m\'edio (I):}} & 153 & \\
-\multicolumn{6}{r}{\textbf{Erro m\'edio (Q):}} & 130 & \\
+\multicolumn{6}{r}{\textbf{Erro m\'edio (I):}} & 372 & \\
+\multicolumn{6}{r}{\textbf{Erro m\'edio (Q):}} &  95 & \\
 \hline
 \end{tabular}
 \end{table}
 
-Todos os erros ficaram bem abaixo da toler\^ancia de 1000~LSB, com erro t\'ipico abaixo de 500~LSB ($< 0{,}008$ em valor real).
+Todos os erros ficaram bem abaixo da toler\^ancia de 1000~LSB. O canal~I apresenta erro m\'edio de 372~LSB ($\approx 0{,}006$ em valor real) e o canal~Q de 95~LSB ($\approx 0{,}001$), confirmando a adequa\c{c}\~ao da aritm\'etica Q16.16 para a aplica\c{c}\~ao DPD.
 
 \subsection{Formas de Onda}
 
@@ -526,16 +532,42 @@ A rede neural DPD completa foi implementada em VHDL e validada por simula\c{c}\~
 
     \item \textbf{Captura de fase $\theta$:} O registrador \texttt{theta\_captured} resolve de forma elegante o problema de propagac\~ao de fase num pipeline multi-ciclo: $\theta$ \'e congelado no in\'icio do processamento de cada amostra, garantindo coer\^encia entre o resultado das MLPs e a rota\c{c}\~ao complexa final.
 
-    \item \textbf{Testabilidade:} A abordagem baseada em arquivos de vetores (\texttt{validation\_vectors\_final.txt} / \texttt{output\_results.txt}) permite valida\c{c}\~ao sistem\'atica contra refer\^encias geradas em Python/MATLAB sem modifica\c{c}\~ao do c\'odigo VHDL.
+    \item \textbf{Testabilidade:} A abordagem baseada em arquivos de vetores (\texttt{validation\_vectors\_final.txt} / \texttt{output\_results.txt}) permite valida\c{c}\~ao sistem\'atica contra refer\^encias geradas em Python sem modifica\c{c}\~ao do c\'odigo VHDL.
 \end{itemize}
 
-\subsection{Trabalhos Futuros}
+% =======================================================================
+\section{S\'intese e Compara\c{c}\~ao de Sa\'idas}
+% =======================================================================
 
-\begin{enumerate}
-    \item \textbf{S\'intese FPGA:} Executar s\'intese l\'ogica e \textit{place-and-route} na plataforma alvo (ex.: Xilinx Artix-7 ou Zynq), verificar fechamento de temporiza\c{c}\~ao e estimar utiliza\c{c}\~ao de recursos (LUTs, FFs, DSPs, BRAMs).
-    \item \textbf{Testes \textit{hardware-in-the-loop}:} Conectar o design sintetizado a um amplificador de pot\^encia real via placa de desenvolvimento e medir a redu\c{c}\~ao de ACPR (\textit{Adjacent Channel Power Ratio}) e EVM (\textit{Error Vector Magnitude}).
-    \item \textbf{Otimiza\c{c}\~ao de throughput:} Explorar pipelines profundos nas camadas densas para aumentar a taxa de processamento sem comprometer a \'area, caso o requisito de lat\^encia seja cr\'itico.
-    \item \textbf{Reconfigura\c{c}\~ao de pesos:} Adicionar interface AXI-Lite para carregar pesos via processador, permitindo adapta\c{c}\~ao do modelo DPD sem reprograma\c{c}\~ao do bitstream.
-\end{enumerate}
+\subsection{S\'intese ISE}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{3cm}
+    {\sffamily\color{black!45} [Captura de tela dos resultados de s\'intese ISE]}\\[6pt]
+    {\sffamily\small\color{black!45}
+        Salvar como \texttt{sintese\_ise.png} e substituir este bloco por:\\
+        \texttt{\textbackslash includegraphics[width=\textbackslash textwidth]\{sintese\_ise\}}
+    }
+\vspace{3cm}}}
+\caption{Resultado da s\'intese l\'ogica no ISE: utiliza\c{c}\~ao de recursos (LUTs, FFs, DSPs, BRAMs) e fechamento de temporiza\c{c}\~ao.}
+\label{fig:sintese_ise}
+\end{figure}
+
+\subsection{Compara\c{c}\~ao Python vs.\ VHDL}
+
+\begin{figure}[H]
+\centering
+\fbox{\parbox{0.88\textwidth}{\centering\vspace{3cm}
+    {\sffamily\color{black!45} [Gr\'afico de compara\c{c}\~ao gerado pelo script Python]}\\[6pt]
+    {\sffamily\small\color{black!45}
+        Executar o script de p\'os-processamento que l\^e \texttt{output\_results.txt} e plota\\
+        sa\'ida VHDL vs.\ refer\^encia Python. Salvar como \texttt{comparacao\_python.png} e substituir por:\\
+        \texttt{\textbackslash includegraphics[width=\textbackslash textwidth]\{comparacao\_python\}}
+    }
+\vspace{3cm}}}
+\caption{Compara\c{c}\~ao entre as sa\'idas gravadas em \texttt{output\_results.txt} (simula\c{c}\~ao VHDL) e os valores de refer\^encia calculados em Python. Canais I e Q sobrepostos com indica\c{c}\~ao de erro.}
+\label{fig:comparacao_python}
+\end{figure}
 
 \end{document}
